@@ -1,0 +1,6 @@
+# Files to ignore in the repository
+service-account-key.json
+NOTE.md
+.env
+venv/
+data/
