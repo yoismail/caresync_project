@@ -1,0 +1,8 @@
+pandas
+python-dotenv
+snowflake-connector-python
+dbt-snowflake
+great-expectations
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
