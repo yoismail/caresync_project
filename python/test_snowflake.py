@@ -34,7 +34,7 @@ def test_snowflake_connection():
         logging.info(f"CONNECTED SUCCESSFULLY!")
         logging.info(f"Snowflake Version: {version[0]}")
 
-        # Optional: Check available databases
+        # Check available databases
         cursor.execute("SHOW DATABASES")
         dbs = cursor.fetchall()
         logging.info("\n Your Databases:")
