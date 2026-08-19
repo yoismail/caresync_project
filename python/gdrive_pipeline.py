@@ -1,8 +1,6 @@
 import io
 import logging
 import os
-from datetime import datetime, time, timedelta
-import sys
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
@@ -15,8 +13,6 @@ load_dotenv()
 # Configuration
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 FOLDER_ID = os.getenv("FOLDER_ID")
-SLA_TIME = os.getenv("SLA_TIME", "10:00")
-SLA_TOLERANCE_MINS = int(os.getenv("SLA_TOLERANCE_MINS", 60))
 LANDING_FOLDER = os.getenv("LANDING_FOLDER", "data/landing/")
 
 _default_files = "conditions.csv,payers.csv,providers.csv,organizations.csv,patients.csv,encounters.csv"
