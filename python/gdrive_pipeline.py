@@ -40,16 +40,26 @@ def download_from_drive():
     service = connect_to_drive()
     results = service.files().list(
         q=f"'{FOLDER_ID}' in parents and mimeType != 'application/vnd.google-apps.folder'",
-        fields="files(id, name, createdTime)"
+        fields="files(id, name, createdTime, size)"
     ).execute()
     files = results.get("files", [])
 
     for f in files:
+
+        # Check for EMPTY file (size = "0" or missing)
+        file_size = f.get("size", "unknown")
+        if file_size == "0":
+            logging.warning(
+                f"EMPTY FILE DETECTED: {f['name']} - 0 bytes. SKIPPING!")
+            continue  # Skip it - don't download empty file
+
+        # Check if the file already exists in the landing folder
         dest_path = os.path.join(LANDING_FOLDER, f["name"])
         if os.path.exists(dest_path):
             logging.info(f" Skipping (already exists): {f['name']}")
             continue  # Skip already downloaded
 
+        # Download only if NOT empty and NOT already present
         request = service.files().get_media(fileId=f["id"])
         with io.FileIO(dest_path, "wb") as fh:
             downloader = MediaIoBaseDownload(fh, request)
