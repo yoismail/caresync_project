@@ -1,3 +1,7 @@
+"""
+Custom logger setup with color support, emoji stripping, and UTF-8 detection.
+"""
+
 import logging
 import os
 import platform
@@ -136,9 +140,9 @@ def timed(func):
         secs = int(elapsed % 60)
 
         if mins > 0:
-            logging.info(f"⏱️ Step completed in {mins}m {secs}s\n")
+            logging.info(f" Step completed in {mins}m {secs}s\n")
         else:
-            logging.info(f"⏱️ Step completed in {secs}s\n")
+            logging.info(f" Step completed in {secs}s\n")
 
         return result
     return wrapper
