@@ -1,6 +1,6 @@
 pandas
 python-dotenv
-snowflake-connector-python
+snowflake-connector-python[pandas]
 dbt-snowflake
 great-expectations
 google-api-python-client
