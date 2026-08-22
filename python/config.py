@@ -1,3 +1,10 @@
+"""
+Configuration for environment variables and Snowflake connection.
+This module loads environment variables from a .env file and provides a CONFIG dictionary
+for connecting to Snowflake, as well as other configuration constants.
+"""
+
+
 import os
 from pathlib import Path
 from dotenv import load_dotenv
