@@ -44,17 +44,18 @@ def load_raw_to_snowflake():
     logging.info("Connected!\n")
 
     for item in FILES:
-        csv_path = os.path.join(CONFIG["raw_data_folder"], item["csv"])
+        raw_data_path = os.path.join(CONFIG["raw_data_folder"], item["csv"])
         table_name = item["table"]
 
-        if not os.path.exists(csv_path):
-            logging.warning(f"SKIP: {item['csv']} not found at {csv_path}")
+        if not os.path.exists(raw_data_path):
+            logging.warning(
+                f"SKIP: {item['csv']} not found at {raw_data_path}")
             continue
 
         logging.info(f"Loading {item['csv']} → {table_name}...")
 
         # Read CSV - ALL columns as STRING (matches RAW layer!)
-        df = pd.read_csv(csv_path, dtype=str, low_memory=False)
+        df = pd.read_csv(raw_data_path, dtype=str, low_memory=False)
 
         # Clean column names to match Snowflake (UPPERCASE)
         df.columns = [col.upper() for col in df.columns]
