@@ -1,3 +1,7 @@
+"""
+This script tests the connection to a Snowflake database using credentials from environment variables.
+"""
+
 import os
 import snowflake.connector
 import logging
@@ -7,9 +11,6 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
-
-# Configure logging
-setup_logging()
 
 logging.info("Attempting to connect to Snowflake...")
 
@@ -57,6 +58,7 @@ def test_snowflake_connection():
 
 
 def main():
+    setup_logging()
     test_snowflake_connection()
 
 
