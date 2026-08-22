@@ -4,3 +4,5 @@ NOTE.md
 .env
 venv/
 data/
+python/__pycache__/
+logs/
