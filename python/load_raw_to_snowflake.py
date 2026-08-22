@@ -1,3 +1,10 @@
+"""
+This script loads raw CSV files from the landing folder into Snowflake tables.
+It connects to Snowflake using credentials from environment variables 
+and uses the write_pandas function for efficient loading.
+"""
+
+
 import os
 import pandas as pd
 import logging
