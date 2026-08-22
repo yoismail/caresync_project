@@ -104,7 +104,7 @@ def check_and_download():
 
     logging.info(str(len(ready_files)) + " file(s) ready for download.")
 
-    # Download Ready Files — SKIP if already exists
+    # Download Ready Files - SKIP if already exists
     for name, f in ready_files:
         dest = os.path.join(LANDING_FOLDER, name)
 
@@ -122,6 +122,8 @@ def check_and_download():
             while not done:
                 _, done = downloader.next_chunk()
         downloaded_paths.append(dest)
+        send_alert("PIPELINE ALERT - File Downloaded",
+                   "File downloaded: " + name)
     logging.info("\033[92m=== SENSOR COMPLETE ===\033[0m")
     return downloaded_paths
 
