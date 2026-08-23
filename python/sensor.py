@@ -122,8 +122,8 @@ def check_and_download():
             while not done:
                 _, done = downloader.next_chunk()
         downloaded_paths.append(dest)
-        send_alert("PIPELINE ALERT - File Downloaded",
-                   "File downloaded: " + name)
+    send_alert("PIPELINE ALERT - File Downloaded for this week run",
+               "File downloaded: " + ", ".join([name for name, _ in ready_files]))
     logging.info("\033[92m=== SENSOR COMPLETE ===\033[0m")
     return downloaded_paths
 
