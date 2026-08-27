@@ -6,6 +6,7 @@ It also checks if the files arrived within the defined SLA window.
 If any files are missing, late, or empty, it sends alerts via Slack and email.
 """
 
+
 import logging
 import os
 import io
@@ -19,7 +20,10 @@ from python.config import (
     SCOPES, FOLDER_ID, LANDING_FOLDER, SLA_HOURS,
     EXPECTED_FILES, SCHEDULED_DROP_TIME
 )
-from python.notifications import send_alert
+from python.notifications import (
+    send_alert,
+    notify_sensor_complete
+)
 
 
 def connect_to_drive():
@@ -40,10 +44,9 @@ def check_and_download():
 
     service = connect_to_drive()
 
-    # SLA TIMES, based on scheduled drop time and SLA hours from config.py
+    # SLA TIMES - based on scheduled drop time and SLA hours from config.py
     scheduled_time = SCHEDULED_DROP_TIME
     deadline_time = scheduled_time + timedelta(hours=SLA_HOURS)
-    sla_cutoff = deadline_time  # File must be have landed in Google Drive BY deadline
 
     logging.info("Scheduled Drop Time: " +
                  scheduled_time.strftime("%Y-%m-%d %H:%M UTC"))
@@ -59,6 +62,7 @@ def check_and_download():
 
     missing_files = []
     late_files = []
+    early_files = []
     ready_files = []
     zero_byte_files = []
     downloaded_paths = []
@@ -96,7 +100,7 @@ def check_and_download():
             report_entries.append(entry)
             continue
 
-        # Parse creation time
+        # Parse creation time - KEEP timezone-aware
         created = datetime.fromisoformat(
             f["createdTime"].replace("Z", "+00:00")
         )
@@ -106,12 +110,21 @@ def check_and_download():
         elapsed = created - scheduled_time
         entry["elapsed_minutes"] = round(elapsed.total_seconds() / 60, 1)
 
-        # Check SLA
-        if created > deadline_time:
+        # STRICT SLA WINDOW CHECK
+        # Only files between scheduled_time and deadline_time are downloaded
+        # Anything outside triggers alert and is skipped
+        if created < scheduled_time:
+            # Arrived BEFORE scheduled time - TOO EARLY
+            early_files.append((name, entry["elapsed_minutes"]))
+            entry["sla_met"] = False
+            entry["status"] = "TOO EARLY"
+        elif created > deadline_time:
+            # Arrived AFTER deadline - LATE
             late_files.append((name, entry["elapsed_minutes"]))
             entry["sla_met"] = False
             entry["status"] = "LATE"
         else:
+            # Arrived within SLA window - ON TIME
             ready_files.append((name, f))
             entry["sla_met"] = True
             entry["status"] = "ON TIME"
@@ -132,25 +145,39 @@ def check_and_download():
         json.dump(report, f, indent=2)
     logging.info("SLA Report saved: " + report_path)
 
-    # Alert: Missing files
+    # ALERT: FILES ARRIVED TOO EARLY
+    if early_files:
+        lines = []
+        for name, mins in early_files:
+            lines.append(
+                f"- {name}: arrived {abs(mins):.1f} minutes BEFORE scheduled time.")
+        alert_msg = "FILES ARRIVED TOO EARLY - OUTSIDE SLA WINDOW (NOT DOWNLOADED):\n" + \
+            "\n".join(lines) + \
+            f"\n\nScheduled: {scheduled_time.strftime('%Y-%m-%d %H:%M UTC')}" + \
+            f"\nDeadline:  {deadline_time.strftime('%Y-%m-%d %H:%M UTC')}" + \
+            "\n\nFiles must arrive WITHIN the SLA window. Not downloaded."
+        logging.warning(alert_msg)
+        send_alert("PIPELINE ALERT - Files Arrived Too Early", alert_msg)
+
+    # ALERT: MISSING FILES
     if missing_files:
         msg = "The following files are MISSING:\n- " + "\n- ".join(missing_files) + \
-              "\n\nScheduled: " + scheduled_time.strftime("%Y-%m-%d %H:%M UTC") + \
-              "\nDeadline:  " + deadline_time.strftime("%Y-%m-%d %H:%M UTC") + \
+              f"\n\nScheduled: {scheduled_time.strftime('%Y-%m-%d %H:%M UTC')}" + \
+              f"\nDeadline:  {deadline_time.strftime('%Y-%m-%d %H:%M UTC')}" + \
               "\n\nPipeline continues with available files."
         logging.warning(msg)
         send_alert("SLA ALERT - Missing Files", msg)
 
-    # Alert: Late files — with elapsed time
+    # ALERT: LATE FILES
     if late_files:
         lines = []
         for name, mins in late_files:
-            lines.append(f"- {name}: {mins} minutes LATE")
-        alert_msg = "SLA MISSED - Files arrived AFTER deadline:\n" + \
+            lines.append(f"- {name}: {mins:.1f} minutes LATE")
+        alert_msg = "SLA MISSED - FILES ARRIVED AFTER DEADLINE (NOT DOWNLOADED):\n" + \
             "\n".join(lines) + \
             f"\n\nScheduled: {scheduled_time.strftime('%Y-%m-%d %H:%M UTC')}" + \
             f"\nDeadline:  {deadline_time.strftime('%Y-%m-%d %H:%M UTC')}" + \
-            "\n\nPipeline continues with on-time files."
+            "\n\nFiles did not arrive by deadline. Not downloaded."
         logging.warning(alert_msg)
         send_alert("SLA ALERT - Files Missed Deadline", alert_msg)
 
@@ -158,12 +185,12 @@ def check_and_download():
     if not ready_files:
         logging.warning("No files available for processing. Pipeline stopped.")
         send_alert("PIPELINE STOPPED - No Files",
-                   "All files missing, empty, or late. Nothing to process.")
+                   "All files missing, early, empty, or late. Nothing to process.")
         return []
 
     logging.info(str(len(ready_files)) + " file(s) ready for download.")
 
-    # Download ready files — skip if already exists
+    # Download ready files - skip if already exists
     for name, f in ready_files:
         dest = os.path.join(LANDING_FOLDER, name)
 
@@ -182,11 +209,13 @@ def check_and_download():
                 _, done = downloader.next_chunk()
         downloaded_paths.append(dest)
 
-    # Final alert
-    send_alert("PIPELINE ALERT - Files Downloaded",
-               "Files downloaded successfully: " + ", ".join([name for name, _ in ready_files]))
+    # FINAL ALERT - Standardized Success Notification
+    notify_sensor_complete(
+        dataset_name=f"{len(ready_files)} file(s) downloaded",
+        count_downloaded=len(downloaded_paths)
+    )
 
-    logging.info("SENSOR COMPLETE....")
+    logging.info("SENSOR COMPLETE...")
     return downloaded_paths
 
 
