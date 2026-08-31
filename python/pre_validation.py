@@ -1,9 +1,16 @@
 """
-Pre-validation module — validates downloaded files against schema rules.
+Pre-validation module - validates downloaded files against schema rules.
+Expected file structure:
+
+- Rule: Each file must adhere to the expected schema and data quality rules (Please refer to the EXPECTED configuration in python/config.py)
+- Mandatory fields must not be empty and must follow the correct format.
+- UUID fields must contain valid UUIDs.
+- Date fields must be valid dates and follow chronological order where applicable.
+- Allowed values for categorical fields must be respected.
+- Row count must match expectations where applicable.
+
 Files that fail are moved to quarantine and skipped. Pipeline continues with passing files.
 """
-
-
 import logging
 import os
 import re
@@ -11,7 +18,7 @@ import shutil
 import pandas as pd
 from datetime import datetime, timezone
 from python.config import (LANDING_FOLDER, EXPECTED, QUARANTINE_FOLDER)
-from python.notifications import send_alert, notify_pre_validation_failure
+from python.notifications import notify_pre_validation_failure, notify_pre_validation_summary
 from python.logger import setup_logging, section
 
 
@@ -28,7 +35,7 @@ UUID_PATTERN = re.compile(
 
 def validate_file(file_path):
     """
-    Run all 7 validation checks.
+    Run all validation checks.
     Return (PASS/FAIL boolean, list_of_issues, row_count).
     """
     filename = os.path.basename(file_path).replace(".csv", "").lower()
@@ -54,13 +61,27 @@ def validate_file(file_path):
     if missing:
         reasons.append(f"Missing columns: {', '.join(missing)}")
 
-    # Check 2: Mandatory Fields Not Empty
+    # Check 2: Mandatory Fields - NOT EMPTY + VALID FORMAT
     for col in cfg["mandatory"]:
-        if col in df.columns:
-            blanks = df[col].isna() | (df[col].astype(str).str.strip() == "")
-            if blanks.any():
-                reasons.append(
-                    f"{blanks.sum()} empty values in mandatory column: {col}")
+        if col not in df.columns:
+            continue
+
+        # Strip whitespace and treat empty string as missing
+        stripped = df[col].astype(str).str.strip()
+        blanks = (df[col].isna()) | (stripped == "")
+        if blanks.any():
+            reasons.append(f"{blanks.sum()} empty in {col}")
+
+        # If column is a DATE column, ALSO check if value is a VALID DATE
+        if col in ["BIRTHDATE", "DEATHDATE", "START", "STOP"]:
+            non_empty = stripped != ""
+            if non_empty.any():
+                parsed = pd.to_datetime(
+                    df.loc[non_empty, col], errors="coerce")
+                invalid_format = parsed.isna()
+                if invalid_format.any():
+                    reasons.append(
+                        f"{invalid_format.sum()} invalid date in {col}")
 
     # Check 3: Valid UUID Format
     for col in cfg["uuid_cols"]:
@@ -68,7 +89,7 @@ def validate_file(file_path):
             invalid = df[col].dropna().astype(str).apply(
                 lambda x: not UUID_PATTERN.match(x.strip()))
             if invalid.any():
-                reasons.append(f"{invalid.sum()} invalid UUIDs in: {col}")
+                reasons.append(f"{invalid.sum()} invalid UUID in {col}")
 
     # Check 4: Allowed Values
     for col, allowed in cfg["allowed_values"].items():
@@ -108,7 +129,7 @@ def validate_file(file_path):
     return passed, reasons, rows
 
 
-def quarantine_file(file_path, issues):
+def quarantine_file(file_path, issues, row_count):
     """
     Move failed file to quarantine folder and send PRE_VALIDATION_FAIL alert.
     """
@@ -126,23 +147,23 @@ def quarantine_file(file_path, issues):
         dataset_name=filename,
         failed_rules_list=issues,
         quarantine_path=f"quarantine/{quarantined_name}",
+        file_rows=str(row_count),
         cascade_skipped=None
     )
     logging.info(f"Alert sent for quarantined file: {filename}")
-
     return dest_path
 
 
 def run_validation(file_paths):
     """
     Validate all files. Quarantine failures individually.
-    Return (list_of_valid_entries, list_of_quarantined_filenames).
+    Return (list_of_valid_entries, list_of_quarantined_info).
     valid_entries = [{"path": "...", "rows": N}]
+    quarantined_info = [{"name": "...", "reasons": [...]}]
     """
     section("STARTING PRE-VALIDATION")
-
     valid_entries = []
-    quarantined = []
+    quarantined_info = []
 
     for path in file_paths:
         filename = os.path.basename(path)
@@ -157,9 +178,8 @@ def run_validation(file_paths):
             logging.warning(f"FAIL - {filename}")
             for issue in issues:
                 logging.warning(f"   {issue}")
-            quarantine_file(path, issues)
-            quarantined.append(filename)
-            # Skip failed file, continue to next file
+            quarantine_file(path, issues, rows)
+            quarantined_info.append({"name": filename, "reasons": issues})
 
     # Save list of valid files for loader
     valid_list_path = os.path.join(LANDING_FOLDER, ".valid_files.txt")
@@ -167,10 +187,32 @@ def run_validation(file_paths):
         for entry in valid_entries:
             f.write(entry["path"] + "\n")
 
-    if quarantined:
-        logging.info(f"Quarantined files: {', '.join(quarantined)}")
+    # Format lists with row counts for summary alert
+    passed_files = [
+        f"{os.path.basename(e['path'])}: {e['rows']} rows"
+        for e in valid_entries
+    ]
 
-    return valid_entries, quarantined
+    # Format quarantined files with ALL issues listed
+    quarantined_files = []
+    for info in quarantined_info:
+        issues_text = "; ".join(info["reasons"])
+        quarantined_files.append(f"{info['name']}: {issues_text}")
+
+    # Send standardized summary alert
+    notify_pre_validation_summary(
+        count_scanned=len(file_paths),
+        count_passed=len(valid_entries),
+        count_quarantined=len(quarantined_info),
+        passed_files=passed_files,
+        quarantined_files=quarantined_files
+    )
+
+    if quarantined_info:
+        names = [i["name"] for i in quarantined_info]
+        logging.info(f"Quarantined files: {', '.join(names)}")
+
+    return valid_entries, quarantined_info
 
 
 def main():
@@ -184,24 +226,7 @@ def main():
         if f.endswith(".csv")
     ]
 
-    valid_entries, quarantined = run_validation(all_files)
-
-    # Build summary with row counts
-    alert_msg = f"Pre-validation completed. {len(all_files)} file(s) scanned.\n"
-    alert_msg += f"Passed: {len(valid_entries)} file(s)\n"
-    alert_msg += f"Quarantined: {len(quarantined)} file(s)"
-
-    if valid_entries:
-        alert_msg += "\n\nPassed Files:\n"
-        for entry in valid_entries:
-            alert_msg += f"- {os.path.basename(entry['path'])} ({entry['rows']} rows)\n"
-
-    if quarantined:
-        alert_msg += "\nQuarantined Files:\n"
-        for name in quarantined:
-            alert_msg += f"- {name}\n"
-
-    send_alert("PRE-VALIDATION COMPLETE", alert_msg)
+    run_validation(all_files)
 
 
 if __name__ == "__main__":
