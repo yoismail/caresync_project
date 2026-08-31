@@ -1,12 +1,10 @@
 """
-This script connects to a specified Google Drive folder, 
-checks for the presence of expected files, 
-and downloads them to a local landing folder. 
-It also checks if the files arrived within the defined SLA window. 
-If any files are missing, late, or empty, it sends alerts via Slack and email.
+This script connects to a specified Google Drive folder,
+checks for the presence of expected files,
+and downloads them to a local landing folder.
+It also checks if the files arrived within the defined SLA window.
+If any files are missing, late, empty, or early, it sends alerts via Slack and email.
 """
-
-
 import logging
 import os
 import io
@@ -41,17 +39,20 @@ def ensure_landing_folder():
 def check_and_download():
     section("STARTING SENSOR CHECK")
     ensure_landing_folder()
-
     service = connect_to_drive()
 
     # SLA TIMES - based on scheduled drop time and SLA hours from config.py
     scheduled_time = SCHEDULED_DROP_TIME
     deadline_time = scheduled_time + timedelta(hours=SLA_HOURS)
+    check_time = datetime.now(timezone.utc)
 
-    logging.info("Scheduled Drop Time: " +
-                 scheduled_time.strftime("%Y-%m-%d %H:%M UTC"))
-    logging.info("SLA Deadline (+" + str(SLA_HOURS) + "h): " +
-                 deadline_time.strftime("%Y-%m-%d %H:%M UTC"))
+    scheduled_str = scheduled_time.strftime("%Y-%m-%d %H:%M UTC")
+    deadline_str = deadline_time.strftime("%Y-%m-%d %H:%M UTC")
+    check_str = check_time.strftime("%Y-%m-%d %H:%M UTC")
+
+    logging.info("Scheduled Drop Time: " + scheduled_str)
+    logging.info("SLA Deadline (+" + str(SLA_HOURS) + "h): " + deadline_str)
+    logging.info("Sensor Check Time: " + check_str)
 
     # List files in Drive folder
     results = service.files().list(
@@ -66,7 +67,9 @@ def check_and_download():
     ready_files = []
     zero_byte_files = []
     downloaded_paths = []
+    skipped_local = []
     report_entries = []
+    file_list_for_alert = []
 
     # Check each expected file
     for name in EXPECTED_FILES:
@@ -90,7 +93,8 @@ def check_and_download():
         entry["found"] = True
 
         # Check for zero-byte file
-        if f.get("size", "0") == "0" or int(f.get("size", 0)) == 0:
+        size = int(f.get("size", 0))
+        if size == 0:
             zero_byte_files.append(name)
             entry["status"] = "EMPTY"
             alert_msg = "File " + name + \
@@ -100,11 +104,11 @@ def check_and_download():
             report_entries.append(entry)
             continue
 
-        # Parse creation time - KEEP timezone-aware
+        # Parse creation time - keep timezone-aware
         created = datetime.fromisoformat(
             f["createdTime"].replace("Z", "+00:00")
         )
-        entry["arrived_time"] = created.strftime("%Y-%m-%d %H:%M:%S")
+        entry["arrived_time"] = created.strftime("%Y-%m-%d %H:%M:%S UTC")
 
         # Calculate elapsed time
         elapsed = created - scheduled_time
@@ -128,18 +132,18 @@ def check_and_download():
             ready_files.append((name, f))
             entry["sla_met"] = True
             entry["status"] = "ON TIME"
+            file_list_for_alert.append(name)
 
         report_entries.append(entry)
 
     # Save machine-readable report
     report = {
-        "batch_checked": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "batch_checked": check_time.strftime("%Y-%m-%d %H:%M:%S UTC"),
         "scheduled_time": scheduled_time.strftime("%Y-%m-%d %H:%M:%S"),
         "deadline_time": deadline_time.strftime("%Y-%m-%d %H:%M:%S"),
         "sla_hours": SLA_HOURS,
         "files": report_entries
     }
-
     report_path = os.path.join(LANDING_FOLDER, "sla_report.json")
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2)
@@ -152,19 +156,17 @@ def check_and_download():
             lines.append(
                 f"- {name}: arrived {abs(mins):.1f} minutes BEFORE scheduled time.")
         alert_msg = "FILES ARRIVED TOO EARLY - OUTSIDE SLA WINDOW (NOT DOWNLOADED):\n" + \
-            "\n".join(lines) + \
-            f"\n\nScheduled: {scheduled_time.strftime('%Y-%m-%d %H:%M UTC')}" + \
-            f"\nDeadline:  {deadline_time.strftime('%Y-%m-%d %H:%M UTC')}" + \
-            "\n\nFiles must arrive WITHIN the SLA window. Not downloaded."
+                    "\n".join(lines) + \
+                    f"\n\nScheduled: {scheduled_str}\nDeadline:  {deadline_str}\n" + \
+                    "Files must arrive WITHIN the SLA window. Not downloaded."
         logging.warning(alert_msg)
         send_alert("PIPELINE ALERT - Files Arrived Too Early", alert_msg)
 
     # ALERT: MISSING FILES
     if missing_files:
         msg = "The following files are MISSING:\n- " + "\n- ".join(missing_files) + \
-              f"\n\nScheduled: {scheduled_time.strftime('%Y-%m-%d %H:%M UTC')}" + \
-              f"\nDeadline:  {deadline_time.strftime('%Y-%m-%d %H:%M UTC')}" + \
-              "\n\nPipeline continues with available files."
+              f"\n\nScheduled: {scheduled_str}\nDeadline:  {deadline_str}\n" + \
+              "Pipeline continues with available files."
         logging.warning(msg)
         send_alert("SLA ALERT - Missing Files", msg)
 
@@ -174,29 +176,69 @@ def check_and_download():
         for name, mins in late_files:
             lines.append(f"- {name}: {mins:.1f} minutes LATE")
         alert_msg = "SLA MISSED - FILES ARRIVED AFTER DEADLINE (NOT DOWNLOADED):\n" + \
-            "\n".join(lines) + \
-            f"\n\nScheduled: {scheduled_time.strftime('%Y-%m-%d %H:%M UTC')}" + \
-            f"\nDeadline:  {deadline_time.strftime('%Y-%m-%d %H:%M UTC')}" + \
-            "\n\nFiles did not arrive by deadline. Not downloaded."
+                    "\n".join(lines) + \
+                    f"\n\nScheduled: {scheduled_str}\nDeadline:  {deadline_str}\n" + \
+                    "Files did not arrive by deadline. Not downloaded."
         logging.warning(alert_msg)
         send_alert("SLA ALERT - Files Missed Deadline", alert_msg)
+
+    # ACCURATE SLA STATUS CALCULATION
+    files_on_time = len(ready_files)
+    files_missing = len(missing_files)
+    files_late = len(late_files)
+    files_early = len(early_files)
+    files_empty = len(zero_byte_files)
+    deadline_passed = check_time > deadline_time
+    any_issues = files_missing > 0 or files_late > 0 or files_early > 0 or files_empty > 0
+
+    if any_issues:
+        parts = []
+        if files_missing:
+            parts.append(f"{files_missing} MISSING")
+        if files_late:
+            parts.append(f"{files_late} LATE")
+        if files_early:
+            parts.append(f"{files_early} TOO EARLY")
+        if files_empty:
+            parts.append(f"{files_empty} EMPTY")
+        sla_status = "ISSUES: " + ", ".join(parts)
+    elif deadline_passed:
+        sla_status = "ALL FILES ON TIME - DEADLINE PASSED"
+    else:
+        mins_remaining = round(
+            (deadline_time - check_time).total_seconds() / 60)
+        sla_status = f"CHECK IN PROGRESS - {mins_remaining} min until deadline"
+
+    logging.info("SLA Status: " + sla_status)
 
     # Stop if nothing to process
     if not ready_files:
         logging.warning("No files available for processing. Pipeline stopped.")
         send_alert("PIPELINE STOPPED - No Files",
                    "All files missing, early, empty, or late. Nothing to process.")
+        notify_sensor_complete(
+            dataset_name="Sensor Check Complete",
+            count_expected=len(EXPECTED_FILES),
+            count_downloaded=0,
+            count_skipped=files_missing + files_late + files_early + files_empty,
+            count_missing=files_missing,
+            scheduled_drop=scheduled_str,
+            sla_deadline=deadline_str,
+            check_time=check_str,
+            sla_status=sla_status,
+            file_list=file_list_for_alert
+        )
         return []
 
     logging.info(str(len(ready_files)) + " file(s) ready for download.")
 
-    # Download ready files - skip if already exists
+    # Download ready files - skip if already exists locally
     for name, f in ready_files:
         dest = os.path.join(LANDING_FOLDER, name)
-
         if os.path.exists(dest):
             logging.info("File already exists locally: " +
                          name + " - skipping download.")
+            skipped_local.append(name)
             downloaded_paths.append(dest)
             continue
 
@@ -209,13 +251,31 @@ def check_and_download():
                 _, done = downloader.next_chunk()
         downloaded_paths.append(dest)
 
-    # FINAL ALERT - Standardized Success Notification
+    # Update file list with status: downloaded or already local
+    for i in range(len(file_list_for_alert)):
+        name = file_list_for_alert[i]
+        if name in skipped_local:
+            file_list_for_alert[i] = name + " (already local)"
+        else:
+            file_list_for_alert[i] = name + " (downloaded)"
+
+    # Final standardized sensor complete alert
+    total_skipped = len(skipped_local) + files_missing + \
+        files_late + files_early + files_empty
     notify_sensor_complete(
-        dataset_name=f"{len(ready_files)} file(s) downloaded",
-        count_downloaded=len(downloaded_paths)
+        dataset_name=f"{len(ready_files)} file(s) ready",
+        count_expected=len(EXPECTED_FILES),
+        count_downloaded=len(downloaded_paths),
+        count_skipped=total_skipped,
+        count_missing=files_missing,
+        scheduled_drop=scheduled_str,
+        sla_deadline=deadline_str,
+        check_time=check_str,
+        sla_status=sla_status,
+        file_list=file_list_for_alert
     )
 
-    logging.info("SENSOR COMPLETE...")
+    logging.info("SENSOR COMPLETE")
     return downloaded_paths
 
 
