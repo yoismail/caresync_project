@@ -18,15 +18,28 @@ SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 FOLDER_ID = os.getenv("FOLDER_ID")
 LANDING_FOLDER = os.getenv("LANDING_FOLDER", "data/landing/")
 
-# SLA
-SLA_HOURS = int(os.getenv("SLA_HOURS", "1"))
+
+# Expected Files, set via environment variables.
+_default_files = "conditions.csv,payers.csv,providers.csv,organizations.csv,patients.csv,encounters.csv"
+EXPECTED_FILES = os.getenv("EXPECTED_FILES", _default_files).strip().split(",")
+EXPECTED_FILES = [f.strip() for f in EXPECTED_FILES if f.strip()]
 
 
-# WEEKLY SCHEDULE CONFIG
+# Notifications for pipeline alerts, set via environment variables.
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL")
+
+
+# WEEKLY NOTIFICATION SCHEDULE CONFIG
 # 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
-DELIVERY_WEEKDAY = 4       # Files expected EVERY FRIDAY
-DELIVERY_HOUR_UTC = 9      # At 09:00 UTC
+DELIVERY_WEEKDAY = 0
+DELIVERY_HOUR_UTC = 13
 DELIVERY_MINUTE = 0
+SLA_HOURS = 1
 
 # CALCULATE THIS WEEK'S DELIVERY DAY ONLY
 today = datetime.now(timezone.utc).date()
@@ -42,6 +55,7 @@ if today > scheduled_this_week:
 else:
     # Friday is coming up or today → expect THIS week
     scheduled_date = scheduled_this_week
+
 # Build final timestamp for scheduled drop time
 SCHEDULED_DROP_TIME = datetime(
     year=scheduled_date.year,
@@ -53,39 +67,7 @@ SCHEDULED_DROP_TIME = datetime(
     tzinfo=timezone.utc
 )
 
-# Expected Files, set via environment variables.
-_default_files = "conditions.csv,payers.csv,providers.csv,organizations.csv,patients.csv,encounters.csv"
-EXPECTED_FILES = os.getenv("EXPECTED_FILES", _default_files).strip().split(",")
-EXPECTED_FILES = [f.strip() for f in EXPECTED_FILES if f.strip()]
-
-# Notifications, set via environment variables.
-SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL")
-
-
-# Configuration for Snowflake connection and raw data folder,
-# set via environment variables.
-# The passcode is a 6-digit MFA code that must be updated for each run.
-CONFIG = {
-    "account": os.getenv("SNOWFLAKE_ACCOUNT"),
-    "user": os.getenv("SNOWFLAKE_USER"),
-    "password": os.getenv("SNOWFLAKE_PASSWORD"),
-    "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE"),
-    "database": os.getenv("SNOWFLAKE_DATABASE"),
-    "schema": os.getenv("SNOWFLAKE_SCHEMA"),
-    "role": os.getenv("SNOWFLAKE_ROLE"),
-    "raw_data_folder": Path(os.getenv("RAW_DATA_PATH")),
-    "passcode": os.getenv("SNOWFLAKE_PASSCODE")
-}
-
-# Quarantine folder for files that fail pre-validation. This is set via environment variable or defaults to "data/landing/quarantine".
-QUARANTINE_FOLDER = os.getenv("QUARANTINE_FOLDER", "data/landing/quarantine")
-
-# EXPECTED SCHEMA PER FILE
+# EXPECTED SCHEMA DICTIONARY PER FILE
 EXPECTED = {
     "patients": {
         "columns": ['Id', 'BIRTHDATE', 'DEATHDATE', 'SSN', 'DRIVERS', 'PASSPORT', 'PREFIX',
@@ -99,7 +81,7 @@ EXPECTED = {
             "GENDER": ["M", "F", "male", "female", "Male", "Female", "Unknown", ""],
             "MARITAL": ["M", "S", "D", "W", "", None]
         },
-        "row_min": 10, "row_max": 50000
+        "row_min": 0, "row_max": 500000
     },
     "encounters": {
         "columns": ['Id', 'START', 'STOP', 'PATIENT', 'ORGANIZATION', 'PROVIDER', 'PAYER',
@@ -111,14 +93,14 @@ EXPECTED = {
         "allowed_values": {
             "ENCOUNTERCLASS": ["ambulatory", "inpatient", "outpatient", "emergency", "urgentcare", "wellness", "other"]
         },
-        "row_min": 5, "row_max": 200000
+        "row_min": 0, "row_max": 1000000
     },
     "conditions": {
         "columns": ['START', 'STOP', 'PATIENT', 'ENCOUNTER', 'CODE', 'DESCRIPTION'],
         "mandatory": ["ENCOUNTER", "PATIENT", "CODE"],
         "uuid_cols": ["ENCOUNTER", "PATIENT"],
         "allowed_values": {},
-        "row_min": 0, "row_max": 100000
+        "row_min": 0, "row_max": 500000
     },
     "payers": {
         "columns": ['Id', 'NAME', 'ADDRESS', 'CITY', 'STATE_HEADQUARTERED', 'ZIP', 'PHONE',
@@ -148,4 +130,24 @@ EXPECTED = {
         "allowed_values": {},
         "row_min": 3, "row_max": 2000
     }
+}
+
+
+# Quarantine folder for files that fail pre-validation. This is set via environment variable or defaults to "data/landing/quarantine".
+QUARANTINE_FOLDER = os.getenv("QUARANTINE_FOLDER", "data/landing/quarantine")
+
+
+# Configuration for Snowflake connection and raw data folder,
+# set via environment variables.
+# The passcode is a 6-digit MFA code that must be updated for each run.
+CONFIG = {
+    "account": os.getenv("SNOWFLAKE_ACCOUNT"),
+    "user": os.getenv("SNOWFLAKE_USER"),
+    "password": os.getenv("SNOWFLAKE_PASSWORD"),
+    "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE"),
+    "database": os.getenv("SNOWFLAKE_DATABASE"),
+    "schema": os.getenv("SNOWFLAKE_SCHEMA"),
+    "role": os.getenv("SNOWFLAKE_ROLE"),
+    "raw_data_folder": Path(os.getenv("RAW_DATA_PATH")),
+    "passcode": os.getenv("SNOWFLAKE_PASSCODE")
 }
