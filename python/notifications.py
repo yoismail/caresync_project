@@ -1,8 +1,7 @@
 """
 Notification module for sending alerts via Slack and Email.
+Standardized alert format across all pipeline stages.
 """
-
-
 import logging
 import smtplib
 import socket
@@ -22,7 +21,7 @@ def send_alert(subject, message):
     if SLACK_WEBHOOK_URL:
         try:
             requests.post(SLACK_WEBHOOK_URL, json={
-                "text": full_msg}, timeout=10)
+                          "text": full_msg}, timeout=10)
             logging.info("Slack alert sent")
         except Exception as e:
             logging.error("Slack failed: " + str(e))
@@ -46,13 +45,13 @@ def send_alert(subject, message):
 # Generate consistent Run ID for every pipeline execution
 RUN_ID = datetime.now(timezone.utc).strftime(
     "%Y%m%d_%H%M%S") + "-" + socket.gethostname()
+LINE = "----------------------------------------"
 
 
 def build_alert_payload(event_type, dataset_name, **kwargs):
     """
-    Standardized alert payload — same structure across ALL events.
-
-    event_type: PRE_VALIDATION_FAIL | TASK_ERROR | POST_VALIDATION_FAIL | RUN_SUCCESS | SENSOR_COMPLETE
+    Standardized alert payload - same structure across ALL events.
+    event_type: SLA_MISS | SENSOR_COMPLETE | PRE_VALIDATION_FAIL | PRE_VALIDATION_SUMMARY | TASK_ERROR | POST_VALIDATION_FAIL | RUN_SUCCESS
     """
     base = {
         "event_type": event_type,
@@ -61,88 +60,170 @@ def build_alert_payload(event_type, dataset_name, **kwargs):
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
         "environment": platform.node()
     }
-
-    # Merge event-specific fields
     base.update(kwargs)
     return base
 
 
 def format_alert_message(payload):
-    """Convert payload to clean Slack/Email message"""
+    """Convert payload to clean, consistent message format."""
     et = payload["event_type"]
-    title = f"PIPELINE {et.replace('_', ' ')} — Run {payload['run_id']}"
+    title = f"PIPELINE {et.replace('_', ' ')}: Run {payload['run_id']}"
 
     body = f"""
 Run ID:     {payload['run_id']}
 Dataset:    {payload['dataset']}
 Timestamp:  {payload['timestamp']}
 Host:       {payload['environment']}
+{LINE}
 """
 
-    # SENSOR COMPLETE
-    if et == "SENSOR_COMPLETE":
+    # SLA MISS - expected vs arrival time
+    if et == "SLA_MISS":
         body += f"""
-Files Downloaded: {payload.get('count_downloaded', 0)}
-Ready for pre-validation.
+Scheduled Drop:   {payload.get('scheduled_drop', 'N/A')}
+SLA Deadline:     {payload.get('sla_deadline', 'N/A')}
+Arrival Time:     {payload.get('arrival_time', 'N/A')}
+Elapsed Time:     {payload.get('elapsed_minutes', 'N/A')} minutes
+Status:           MISSED DEADLINE
 """
 
-    # PRE-VALIDATION FAILURE
+    # SENSOR COMPLETE - full SLA + file summary
+    elif et == "SENSOR_COMPLETE":
+        file_list = payload.get('file_list', [])
+        files_block = "\n".join(
+            f"- {f}" for f in file_list) if file_list else "- None"
+        body += f"""
+Scheduled Drop:   {payload.get('scheduled_drop', 'N/A')}
+SLA Deadline:     {payload.get('sla_deadline', 'N/A')}
+Check Time:       {payload.get('check_time', 'N/A')}
+SLA Status:       {payload.get('sla_status', 'N/A')}
+
+Summary
+Expected:         {payload.get('count_expected', 0)}
+Downloaded:       {payload.get('count_downloaded', 0)}
+Skipped:          {payload.get('count_skipped', 0)}
+Missing:          {payload.get('count_missing', 0)}
+
+Files Processed
+{files_block}
+"""
+
+    # PRE-VALIDATION FAILURE - per-file failure
     elif et == "PRE_VALIDATION_FAIL":
+        rules_text = payload.get('failed_rules_text', 'No details')
         body += f"""
-Failed Rules Count: {payload.get('failed_rules_count', 0)}
-Quarantined At:     {payload.get('quarantine_path', 'N/A')}
-Cascade-Skipped:    {payload.get('cascade_skipped', 'None')}
+Failed Rules:     {payload.get('failed_rules_count', 0)}
+Quarantine Path:  {payload.get('quarantine_path', 'N/A')}
+Rows in File:     {payload.get('file_rows', 'N/A')}
+Cascade-Skipped:  {payload.get('cascade_skipped', 'None')}
 
-Failed Rules:
-{payload.get('failed_rules_text', 'No details')}
+Issues
+{rules_text}
 """
 
-    # TASK / INFRASTRUCTURE ERROR
+    # PRE-VALIDATION SUMMARY - overall result with file lists
+    elif et == "PRE_VALIDATION_SUMMARY":
+        passed = payload.get('passed_files', [])
+        quarantined = payload.get('quarantined_files', [])
+        passed_block = "\n".join(
+            f"- {f}" for f in passed) if passed else "- None"
+        quar_block = "\n".join(
+            f"- {f}" for f in quarantined) if quarantined else "- None"
+        body += f"""
+Files Scanned:    {payload.get('count_scanned', 0)}
+Passed:           {payload.get('count_passed', 0)}
+Quarantined:      {payload.get('count_quarantined', 0)}
+
+Passed Files
+{passed_block}
+
+Quarantined Files
+{quar_block}
+
+Next Steps
+{payload.get('count_passed', 0)} file(s) ready for load.
+{payload.get('count_quarantined', 0)} file(s) moved to quarantine.
+"""
+
+    # TASK / INFRASTRUCTURE ERROR -
     elif et == "TASK_ERROR":
         body += f"""
-Task:            {payload.get('task_name', 'Unknown')}
-Error Summary:   {payload.get('error_summary', 'Unknown error')}
-Log Reference:   {payload.get('log_ref', 'N/A')}
-Cascade-Skipped: {payload.get('cascade_skipped', 'All downstream')}
+Task:             {payload.get('task_name', 'Unknown')}
+Error Summary:    {payload.get('error_summary', 'Unknown error')}
+Log Reference:    {payload.get('log_ref', 'N/A')}
+Cascade-Skipped:  {payload.get('cascade_skipped', 'All downstream')}
 """
 
-    # POST-VALIDATION FAILURE
+    # POST-VALIDATION FAILURE -
     elif et == "POST_VALIDATION_FAIL":
+        rules_text = payload.get('failed_rules_text', 'No details')
         body += f"""
-Failed Rules Count: {payload.get('failed_rules_count', 0)}
-Tables Affected:    {payload.get('tables_affected', 'None')}
+Failed Rules:     {payload.get('failed_rules_count', 0)}
+Tables Affected:  {payload.get('tables_affected', 'None')}
 
-Failed Business Rules:
-{payload.get('failed_rules_text', 'No details')}
+Failed Business Rules
+{rules_text}
 """
 
-    # RUN SUCCESS
+    # RUN SUCCESS - both gates passed, final counts
     elif et == "RUN_SUCCESS":
+        tables = payload.get('loaded_tables', [])
+        tables_block = "\n".join(
+            f"- {t}" for t in tables) if tables else "- None"
         body += f"""
 Gate 1 (Pre-Validation): PASSED
 Gate 2 (Post-Load):      PASSED
 
-Counts:
-- Read:       {payload.get('count_read', 0)}
-- Validated:  {payload.get('count_validated', 0)}
-- Loaded:     {payload.get('count_loaded', 0)}
+Counts
+- Read:           {payload.get('count_read', 0)}
+- Validated:      {payload.get('count_validated', 0)}
+- Loaded:         {payload.get('count_loaded', 0)}
+
+Tables Loaded
+{tables_block}
+
+Pipeline completed successfully.
 """
 
     return title, body.strip()
 
 
-# Convenience Functions
-def notify_sensor_complete(dataset_name, count_downloaded):
+# --- PUBLIC CONVENIENCE FUNCTIONS ---
+
+def notify_sla_miss(dataset_name, scheduled_drop, sla_deadline, arrival_time, elapsed_minutes):
     payload = build_alert_payload(
-        event_type="SENSOR_COMPLETE",
+        event_type="SLA_MISS",
         dataset_name=dataset_name,
-        count_downloaded=count_downloaded
+        scheduled_drop=scheduled_drop,
+        sla_deadline=sla_deadline,
+        arrival_time=arrival_time,
+        elapsed_minutes=elapsed_minutes
     )
     subject, body = format_alert_message(payload)
     send_alert(subject, body)
 
 
-def notify_pre_validation_failure(dataset_name, failed_rules_list, quarantine_path, cascade_skipped=None):
+def notify_sensor_complete(dataset_name, count_expected=0, count_downloaded=0, count_skipped=0,
+                           count_missing=0, scheduled_drop="N/A", sla_deadline="N/A",
+                           check_time="N/A", sla_status="N/A", file_list=None):
+    payload = build_alert_payload(
+        event_type="SENSOR_COMPLETE",
+        dataset_name=dataset_name,
+        count_expected=count_expected,
+        count_downloaded=count_downloaded,
+        count_skipped=count_skipped,
+        count_missing=count_missing,
+        scheduled_drop=scheduled_drop,
+        sla_deadline=sla_deadline,
+        check_time=check_time,
+        sla_status=sla_status,
+        file_list=file_list or []
+    )
+    subject, body = format_alert_message(payload)
+    send_alert(subject, body)
+
+
+def notify_pre_validation_failure(dataset_name, failed_rules_list, quarantine_path, file_rows="N/A", cascade_skipped=None):
     count = len(failed_rules_list)
     rules_text = "\n".join([f"- {r}" for r in failed_rules_list])
     payload = build_alert_payload(
@@ -151,8 +232,23 @@ def notify_pre_validation_failure(dataset_name, failed_rules_list, quarantine_pa
         failed_rules_count=count,
         failed_rules_text=rules_text,
         quarantine_path=quarantine_path,
+        file_rows=file_rows,
         cascade_skipped=", ".join(
             cascade_skipped) if cascade_skipped else "None"
+    )
+    subject, body = format_alert_message(payload)
+    send_alert(subject, body)
+
+
+def notify_pre_validation_summary(count_scanned, count_passed, count_quarantined, passed_files, quarantined_files):
+    payload = build_alert_payload(
+        event_type="PRE_VALIDATION_SUMMARY",
+        dataset_name=f"{count_scanned} file(s) scanned",
+        count_scanned=count_scanned,
+        count_passed=count_passed,
+        count_quarantined=count_quarantined,
+        passed_files=passed_files,
+        quarantined_files=quarantined_files
     )
     subject, body = format_alert_message(payload)
     send_alert(subject, body)
@@ -187,22 +283,22 @@ def notify_post_validation_failure(dataset_name, failed_rules_list, tables_affec
     send_alert(subject, body)
 
 
-def notify_run_success(dataset_name, count_read, count_validated, count_loaded):
+def notify_run_success(count_read, count_validated, count_loaded, loaded_tables=None):
     payload = build_alert_payload(
         event_type="RUN_SUCCESS",
-        dataset_name=dataset_name,
+        dataset_name="All Files",
         count_read=count_read,
         count_validated=count_validated,
-        count_loaded=count_loaded
+        count_loaded=count_loaded,
+        loaded_tables=loaded_tables or []
     )
     subject, body = format_alert_message(payload)
     send_alert(subject, body)
 
 
 def main():
-    # Setup logging for standalone testing
     setup_logging()
-    send_alert("Test Alert", "This is a test alert message.")
+    send_alert("Test Alert", "Notification module loaded successfully.")
 
 
 if __name__ == "__main__":
