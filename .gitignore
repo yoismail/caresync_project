@@ -6,3 +6,7 @@ venv/
 data/
 python/__pycache__/
 logs/
+# RSA Private Key for Snowflake authentication
+rsa_key.p8
+rsa_key.pub
+
