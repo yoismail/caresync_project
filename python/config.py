@@ -137,17 +137,16 @@ EXPECTED = {
 QUARANTINE_FOLDER = os.getenv("QUARANTINE_FOLDER", "data/landing/quarantine")
 
 
-# Configuration for Snowflake connection and raw data folder,
-# set via environment variables.
-# The passcode is a 6-digit MFA code that must be updated for each run.
-CONFIG = {
-    "account": os.getenv("SNOWFLAKE_ACCOUNT"),
-    "user": os.getenv("SNOWFLAKE_USER"),
-    "password": os.getenv("SNOWFLAKE_PASSWORD"),
-    "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE"),
-    "database": os.getenv("SNOWFLAKE_DATABASE"),
-    "schema": os.getenv("SNOWFLAKE_SCHEMA"),
-    "role": os.getenv("SNOWFLAKE_ROLE"),
-    "raw_data_folder": Path(os.getenv("RAW_DATA_PATH")),
-    "passcode": os.getenv("SNOWFLAKE_PASSCODE")
-}
+# Snowflake connection settings from environment variables
+SNOWFLAKE_ACCOUNT = os.getenv("SNOWFLAKE_ACCOUNT")
+SNOWFLAKE_USER = os.getenv("SNOWFLAKE_USER")
+SNOWFLAKE_PASSWORD = os.getenv("SNOWFLAKE_PASSWORD")
+SNOWFLAKE_DATABASE = os.getenv("SNOWFLAKE_DATABASE")
+SNOWFLAKE_WAREHOUSE = os.getenv("SNOWFLAKE_WAREHOUSE")
+SNOWFLAKE_ROLE = os.getenv("SNOWFLAKE_ROLE")
+SNOWFLAKE_SCHEMA = os.getenv("SNOWFLAKE_SCHEMA")
+RAW_DATA_PATH = os.getenv("RAW_DATA_PATH")
+SNOWFLAKE_PASSCODE = os.getenv("SNOWFLAKE_PASSCODE")
+
+# === Key Pair Authentication ===
+PRIVATE_KEY_PATH = os.getenv("RSA_PRIVATE_KEY")
