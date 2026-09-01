@@ -4,6 +4,10 @@ checks for the presence of expected files,
 and downloads them to a local landing folder.
 It also checks if the files arrived within the defined SLA window.
 If any files are missing, late, empty, or early, it sends alerts via Slack and email.
+
+DESIGNED FOR SWAPABILITY: All file-source logic is isolated.
+To swap → SFTP: replace ONLY the file-listing/timestamp section.
+SLA checks, reporting, alerts, and pipeline flow → ZERO changes.
 """
 import logging
 import os
@@ -36,6 +40,50 @@ def ensure_landing_folder():
         os.makedirs(LANDING_FOLDER, exist_ok=True)
 
 
+# ==================================================
+# INTERFACE LAYER - FILE SOURCE
+# SWAP THIS BLOCK FOR SFTP IN WEEK 3
+# ==================================================
+def fetch_source_files(service):
+    """
+    Get list of files, their arrival times, size, and IDs.
+    SWAP THIS FUNCTION for SFTP later - rest of pipeline NEVER changes.
+    Returns: {filename: {"arrived": datetime(UTC), "size": int, "id": str}}
+    """
+    results = service.files().list(
+        q=f"'{FOLDER_ID}' in parents and mimeType != 'application/vnd.google-apps.folder'",
+        fields="files(name, createdTime, size, id)"
+    ).execute()
+
+    source_files = {}
+    for f in results.get("files", []):
+        name = f["name"]
+        created = datetime.fromisoformat(
+            f["createdTime"].replace("Z", "+00:00"))
+        source_files[name] = {
+            "arrived": created,
+            "size": int(f.get("size", 0)),
+            "id": f["id"],
+            "raw": f
+        }
+    return source_files
+
+
+def download_file(source_info, destination_path, service):
+    """Download a single file from source to landing folder."""
+    file_id = source_info["id"]
+    request = service.files().get_media(fileId=file_id)
+    with io.FileIO(destination_path, "wb") as fh:
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+    return True
+# ==================================================
+# END OF INTERFACE - EVERYTHING BELOW STAYS THE SAME
+# ==================================================
+
+
 def check_and_download():
     section("STARTING SENSOR CHECK")
     ensure_landing_folder()
@@ -54,12 +102,10 @@ def check_and_download():
     logging.info("SLA Deadline (+" + str(SLA_HOURS) + "h): " + deadline_str)
     logging.info("Sensor Check Time: " + check_str)
 
-    # List files in Drive folder
-    results = service.files().list(
-        q=f"'{FOLDER_ID}' in parents and mimeType != 'application/vnd.google-apps.folder'",
-        fields="files(name, createdTime, size, id)"
-    ).execute()
-    drive_files = {f["name"]: f for f in results.get("files", [])}
+    # ------------------------------
+    # GET FILES FROM SOURCE - ONE LINE TO SWAP
+    # ------------------------------
+    source_files = fetch_source_files(service)
 
     missing_files = []
     late_files = []
@@ -84,17 +130,16 @@ def check_and_download():
             "status": "MISSING"
         }
 
-        if name not in drive_files:
+        if name not in source_files:
             missing_files.append(name)
             report_entries.append(entry)
             continue
 
-        f = drive_files[name]
+        info = source_files[name]
         entry["found"] = True
 
         # Check for zero-byte file
-        size = int(f.get("size", 0))
-        if size == 0:
+        if info["size"] == 0:
             zero_byte_files.append(name)
             entry["status"] = "EMPTY"
             alert_msg = "File " + name + \
@@ -104,32 +149,30 @@ def check_and_download():
             report_entries.append(entry)
             continue
 
-        # Parse creation time - keep timezone-aware
-        created = datetime.fromisoformat(
-            f["createdTime"].replace("Z", "+00:00")
-        )
-        entry["arrived_time"] = created.strftime("%Y-%m-%d %H:%M:%S UTC")
+        # Arrival time from source
+        arrived = info["arrived"]
+        entry["arrived_time"] = arrived.strftime("%Y-%m-%d %H:%M:%S UTC")
 
         # Calculate elapsed time
-        elapsed = created - scheduled_time
+        elapsed = arrived - scheduled_time
         entry["elapsed_minutes"] = round(elapsed.total_seconds() / 60, 1)
 
         # STRICT SLA WINDOW CHECK
         # Only files between scheduled_time and deadline_time are downloaded
         # Anything outside triggers alert and is skipped
-        if created < scheduled_time:
+        if arrived < scheduled_time:
             # Arrived BEFORE scheduled time - TOO EARLY
             early_files.append((name, entry["elapsed_minutes"]))
             entry["sla_met"] = False
             entry["status"] = "TOO EARLY"
-        elif created > deadline_time:
+        elif arrived > deadline_time:
             # Arrived AFTER deadline - LATE
             late_files.append((name, entry["elapsed_minutes"]))
             entry["sla_met"] = False
             entry["status"] = "LATE"
         else:
             # Arrived within SLA window - ON TIME
-            ready_files.append((name, f))
+            ready_files.append((name, info))
             entry["sla_met"] = True
             entry["status"] = "ON TIME"
             file_list_for_alert.append(name)
@@ -160,7 +203,7 @@ def check_and_download():
                     f"\n\nScheduled: {scheduled_str}\nDeadline:  {deadline_str}\n" + \
                     "Files must arrive WITHIN the SLA window. Not downloaded."
         logging.warning(alert_msg)
-        send_alert("PIPELINE ALERT - Files Arrived Too Early", alert_msg)
+        send_alert("PIPELINE ALERT: Files Arrived Too Early", alert_msg)
 
     # ALERT: MISSING FILES
     if missing_files:
@@ -168,19 +211,19 @@ def check_and_download():
               f"\n\nScheduled: {scheduled_str}\nDeadline:  {deadline_str}\n" + \
               "Pipeline continues with available files."
         logging.warning(msg)
-        send_alert("SLA ALERT - Missing Files", msg)
+        send_alert("SLA ALERT: Missing Files", msg)
 
     # ALERT: LATE FILES
     if late_files:
         lines = []
         for name, mins in late_files:
             lines.append(f"- {name}: {mins:.1f} minutes LATE")
-        alert_msg = "SLA MISSED - FILES ARRIVED AFTER DEADLINE (NOT DOWNLOADED):\n" + \
+        alert_msg = "SLA MISSED: FILES ARRIVED AFTER DEADLINE (NOT DOWNLOADED):\n" + \
                     "\n".join(lines) + \
                     f"\n\nScheduled: {scheduled_str}\nDeadline:  {deadline_str}\n" + \
                     "Files did not arrive by deadline. Not downloaded."
         logging.warning(alert_msg)
-        send_alert("SLA ALERT - Files Missed Deadline", alert_msg)
+        send_alert("SLA ALERT: Files Missed Deadline", alert_msg)
 
     # ACCURATE SLA STATUS CALCULATION
     files_on_time = len(ready_files)
@@ -233,7 +276,7 @@ def check_and_download():
     logging.info(str(len(ready_files)) + " file(s) ready for download.")
 
     # Download ready files - skip if already exists locally
-    for name, f in ready_files:
+    for name, info in ready_files:
         dest = os.path.join(LANDING_FOLDER, name)
         if os.path.exists(dest):
             logging.info("File already exists locally: " +
@@ -243,12 +286,7 @@ def check_and_download():
             continue
 
         logging.info("Downloading: " + name)
-        request = service.files().get_media(fileId=f["id"])
-        with io.FileIO(dest, "wb") as fh:
-            downloader = MediaIoBaseDownload(fh, request)
-            done = False
-            while not done:
-                _, done = downloader.next_chunk()
+        download_file(info, dest, service)
         downloaded_paths.append(dest)
 
     # Update file list with status: downloaded or already local
