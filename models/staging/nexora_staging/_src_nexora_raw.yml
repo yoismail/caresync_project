@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: hl7
+    tables:
+      - name: conditions
+      - name: encounters
+      - name: organizations
+      - name: patients
+      - name: payers
+      - name: providers
