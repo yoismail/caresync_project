@@ -1,0 +1,82 @@
+version: 2
+
+models:
+  - name: stg_hl7__patients
+    columns:
+      - name: patient_id
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_hl7__organizations
+    columns:
+      - name: organization_id
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_hl7__payers
+    columns:
+      - name: payer_id
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_hl7__providers
+    columns:
+      - name: provider_id
+        tests:
+          - unique
+          - not_null
+      - name: organization_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_hl7__organizations')
+                field: organization_id
+
+  - name: stg_hl7__encounters
+    columns:
+      - name: encounter_id
+        tests:
+          - unique
+          - not_null
+      - name: patient_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_hl7__patients')
+                field: patient_id
+      - name: provider_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_hl7__providers')
+                field: provider_id
+      - name: organization_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_hl7__organizations')
+                field: organization_id
+      - name: payer_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_hl7__payers')
+                field: payer_id
+
+  - name: stg_hl7__conditions
+    columns:
+      - name: encounter_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_hl7__encounters')
+                field: encounter_id
+      - name: patient_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_hl7__patients')
+                field: patient_id
