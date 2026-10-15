@@ -2,6 +2,8 @@ version: 2
 
 sources:
   - name: hl7
+    database: NEXORA_RAW
+    schema: HL7
     tables:
       - name: conditions
       - name: encounters
