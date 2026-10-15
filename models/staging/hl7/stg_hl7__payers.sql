@@ -1,3 +1,15 @@
+{{ config(
+    materialized='table',
+    database='NEXORA_STAGING',
+    schema='HL7'
+) }}
+
+{{ config(
+    materialized='table',
+    database='NEXORA_STAGING',
+    schema='HL7'
+) }}
+
 with 
 source as (
     select * from {{ source('hl7', 'payers') }}

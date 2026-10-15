@@ -1,40 +1,52 @@
-with
-    source as (select * from {{ source("hl7", "patients") }}),
-    renamed as (
-        select
-            id as patient_id,
+{{ config(
+    materialized='table',
+    database='NEXORA_STAGING',
+    schema='HL7'
+) }}
 
-            -- Masked name from separate first + last columns
-            left(first, 1) || '.' || last as patient_masked_name,
+with 
+source as (
+    select * from {{ source('hl7', 'patients') }}
+),
+renamed as (
+    select
+        id                                      as patient_id,
 
-            -- PHI REMOVED — drop sensitive columns entirely
-            -- ssn, drivers, passport, prefix, first, last, suffix, maiden,
-            -- birthplace, full address → NOT included
-            -- Standardize gender values
-            case when gender in ('M', 'F', 'O', 'U') then gender else 'U' end as gender,
+        -- Masked name from separate first + last columns
+        left(first, 1) || '.' || last           as patient_masked_name,
 
-            -- Standardize marital status
-            case
-                when marital in ('S', 'M', 'D', 'W', 'U') then marital else 'U'
-            end as marital_status,
+        -- PHI REMOVED — drop sensitive columns entirely
+        -- ssn, drivers, passport, prefix, first, last, suffix, maiden, birthplace, full address → NOT included
 
-            race,
-            ethnicity,
+        -- Standardize gender values
+        case 
+            when gender in ('M', 'F', 'O', 'U') then gender 
+            else 'U' 
+        end                                     as gender,
 
-            -- Convert to proper date types
-            birthdate::date as birthdate,
-            deathdate::date as deathdate,
+        -- Standardize marital status
+        case 
+            when marital in ('S', 'M', 'D', 'W', 'U') then marital 
+            else 'U' 
+        end                                     as marital_status,
 
-            -- Reduce address — keep only region/county level
-            case when state != '' then state else null end as region,
-            nullif(city, '') as county,
+        race,
+        ethnicity,
 
-            -- Financial values as proper numbers
-            healthcare_expenses::number(18, 2) as healthcare_expenses,
-            healthcare_coverage::number(18, 2) as healthcare_coverage,
+        -- Convert to proper date types
+        birthdate::date                         as birthdate,
+        deathdate::date                         as deathdate,
 
-            loaded_at
-        from source
-    )
-select *
-from renamed
+        -- Reduce address — keep only region/county level
+        case when state != '' then state else null end
+                                                as region,
+        nullif(city, '')                        as county,
+
+        -- Financial values as proper numbers
+        healthcare_expenses::number(18,2)       as healthcare_expenses,
+        healthcare_coverage::number(18,2)       as healthcare_coverage,
+
+        loaded_at
+    from source
+)
+select * from renamed
