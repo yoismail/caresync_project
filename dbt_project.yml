@@ -19,10 +19,10 @@ clean-targets:
 models:
   caresync:
     staging:
-      +database: NEXORA_STAGING
+      +database: NEXORA_STAGING   # cleaned data
       +schema: HL7
       +materialized: table
     marts:
-      +database: NEXORA_PROD
-      +schema: PUBLIC
+      +database: NEXORA_PROD      # final reporting tables ✅
+      +schema: HL7
       +materialized: table
