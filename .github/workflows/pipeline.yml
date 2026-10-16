@@ -1,0 +1,59 @@
+name: CareSync Pipeline
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '0 10 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  full-pipeline:
+    name: Load Transform Validate Alert
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SNOWFLAKE_ACCOUNT:     ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER:        ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PASSWORD:    ${{ secrets.SNOWFLAKE_PASSWORD }}
+      SLACK_WEBHOOK_URL:     ${{ secrets.SLACK_WEBHOOK_URL }}
+      SMTP_SERVER:           ${{ secrets.SMTP_SERVER }}
+      SMTP_PORT:             ${{ secrets.SMTP_PORT }}
+      SMTP_USER:             ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD:         ${{ secrets.SMTP_PASSWORD }}
+      NOTIFICATION_EMAIL:    ${{ secrets.NOTIFICATION_EMAIL }}
+      GOOGLE_DRIVE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_DRIVE_SERVICE_ACCOUNT }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install dbt-snowflake
+
+      - name: Configure dbt profiles
+        run: |
+          mkdir -p ~/.dbt
+          echo "caresync:" > ~/.dbt/profiles.yml
+          echo "  target: default" >> ~/.dbt/profiles.yml
+          echo "  outputs:" >> ~/.dbt/profiles.yml
+          echo "    default:" >> ~/.dbt/profiles.yml
+          echo "      type: snowflake" >> ~/.dbt/profiles.yml
+          echo "      account: $SNOWFLAKE_ACCOUNT" >> ~/.dbt/profiles.yml
+          echo "      user: $SNOWFLAKE_USER" >> ~/.dbt/profiles.yml
+          echo "      password: $SNOWFLAKE_PASSWORD" >> ~/.dbt/profiles.yml
+          echo "      role: SYSADMIN" >> ~/.dbt/profiles.yml
+          echo "      warehouse: COMPUTE_WH" >> ~/.dbt/profiles.yml
+          echo "      database: NEXORA_STAGING" >> ~/.dbt/profiles.yml
+          echo "      schema: DBT_YISMAIL_HL7_HL7" >> ~/.dbt/profiles.yml
+          echo "      threads: 6" >> ~/.dbt/profiles.yml
+
+      - name: Run pipeline
+        run: python -m python.orchestrator
