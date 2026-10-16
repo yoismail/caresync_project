@@ -22,6 +22,8 @@ jobs:
       SMTP_PASSWORD:         ${{ secrets.SMTP_PASSWORD }}
       NOTIFICATION_EMAIL:    ${{ secrets.NOTIFICATION_EMAIL }}
       GOOGLE_DRIVE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_DRIVE_SERVICE_ACCOUNT }}
+      FOLDER_ID: ${{ secrets.FOLDER_ID }}
+      
 
     steps:
       - name: Checkout code
