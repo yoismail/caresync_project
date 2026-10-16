@@ -17,9 +17,9 @@ models:
   caresync:
     staging:
       +database: NEXORA_STAGING
-      +schema: DBT_YISMAIL_HL7
+      # NO +schema line = use profile target schema DIRECTLY
       +materialized: table
     marts:
       +database: NEXORA_PROD
-      +schema: DBT_YISMAIL_HL7
+      # NO +schema line = use profile target schema DIRECTLY
       +materialized: table
