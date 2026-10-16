@@ -19,7 +19,7 @@ from google.oauth2 import service_account
 from python.logger import setup_logging, section
 from python.config import (
     SCOPES, FOLDER_ID, LANDING_FOLDER, SLA_HOURS,
-    EXPECTED_FILES, SCHEDULED_DROP_TIME
+    EXPECTED_FILES, SCHEDULED_DROP_TIME, GOOGLE_CREDENTIALS
 )
 from python.notifications import (
     send_alert,
@@ -28,15 +28,11 @@ from python.notifications import (
 
 
 def connect_to_drive():
-    service_account_json = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT")
-    if service_account_json:
-        creds = service_account.Credentials.from_service_account_info(
-            json.loads(service_account_json), scopes=SCOPES
-        )
-    else:
-        creds = service_account.Credentials.from_service_account_file(
-            "service-account-key.json", scopes=SCOPES
-        )
+    """Get authenticated Google Drive service — uses pre-parsed config."""
+    creds = service_account.Credentials.from_service_account_info(
+        GOOGLE_CREDENTIALS,
+        scopes=SCOPES
+    )
     return build("drive", "v3", credentials=creds)
 
 
