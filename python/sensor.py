@@ -28,9 +28,15 @@ from python.notifications import (
 
 
 def connect_to_drive():
-    creds = service_account.Credentials.from_service_account_file(
-        "service-account-key.json", scopes=SCOPES
-    )
+    service_account_json = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT")
+    if service_account_json:
+        creds = service_account.Credentials.from_service_account_info(
+            json.loads(service_account_json), scopes=SCOPES
+        )
+    else:
+        creds = service_account.Credentials.from_service_account_file(
+            "service-account-key.json", scopes=SCOPES
+        )
     return build("drive", "v3", credentials=creds)
 
 
