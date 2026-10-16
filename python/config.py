@@ -33,7 +33,6 @@ else:
         "or place service-account-key.json in your project folder."
     )
 
-
 # Quarantine folder for files that fail pre-validation. This is set via environment variable or defaults to "data/landing/quarantine".
 QUARANTINE_FOLDER = os.getenv("QUARANTINE_FOLDER", "data/landing/quarantine")
 
