@@ -23,7 +23,8 @@ jobs:
       NOTIFICATION_EMAIL:    ${{ secrets.NOTIFICATION_EMAIL }}
       GOOGLE_DRIVE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_DRIVE_SERVICE_ACCOUNT }}
       FOLDER_ID: ${{ secrets.FOLDER_ID }}
-      RAW_DATA_PATH: ${{ secrets.RAW_DATA_PATH }}
+      LANDING_FOLDER: "data/landing/"
+      RAW_DATA_PATH: "data/landing/"
       
 
     steps:
@@ -55,7 +56,7 @@ jobs:
           echo "      role: SYSADMIN" >> ~/.dbt/profiles.yml
           echo "      warehouse: COMPUTE_WH" >> ~/.dbt/profiles.yml
           echo "      database: NEXORA_STAGING" >> ~/.dbt/profiles.yml
-          echo "      schema: DBT_YISMAIL_HL7_HL7" >> ~/.dbt/profiles.yml
+          echo "      schema: DBT_YISMAIL_HL7" >> ~/.dbt/profiles.yml
           echo "      threads: 6" >> ~/.dbt/profiles.yml
 
       - name: Run pipeline
