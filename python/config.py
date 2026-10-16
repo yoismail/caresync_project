@@ -17,15 +17,21 @@ SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 FOLDER_ID = os.getenv("FOLDER_ID")
 LANDING_FOLDER = os.getenv("LANDING_FOLDER", "data/landing/")
 
+
 # Google Drive service account JSON
 SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT", "").strip()
 
 if SERVICE_ACCOUNT_JSON:
     GOOGLE_CREDENTIALS = json.loads(SERVICE_ACCOUNT_JSON)
-else:
-    # Local dev fallback
+elif os.path.exists("service-account-key.json"):
     with open("service-account-key.json") as f:
         GOOGLE_CREDENTIALS = json.load(f)
+else:
+    raise RuntimeError(
+        "Google Drive credentials not found.\n"
+        "Set GOOGLE_DRIVE_SERVICE_ACCOUNT environment variable, "
+        "or place service-account-key.json in your project folder."
+    )
 
 
 # Quarantine folder for files that fail pre-validation. This is set via environment variable or defaults to "data/landing/quarantine".

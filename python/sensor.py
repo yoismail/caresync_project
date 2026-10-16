@@ -28,17 +28,10 @@ from python.notifications import (
 
 
 def connect_to_drive():
-    service_account_json = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT")
-    if service_account_json and service_account_json.strip():
-        # GitHub Actions / .env path — use directly from env
-        creds = service_account.Credentials.from_service_account_info(
-            json.loads(service_account_json), scopes=SCOPES
-        )
-    else:
-        # Local dev fallback — use file if env not set
-        creds = service_account.Credentials.from_service_account_file(
-            "service-account-key.json", scopes=SCOPES
-        )
+    creds = service_account.Credentials.from_service_account_info(
+        GOOGLE_CREDENTIALS,
+        scopes=SCOPES
+    )
     return build("drive", "v3", credentials=creds)
 
 
