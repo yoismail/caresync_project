@@ -6,14 +6,23 @@ venv/
 data/
 python/__pycache__/
 logs/
+
 # RSA Private Key for Snowflake authentication
 rsa_key.p8
 rsa_key.pub
 
-
-# Default .gitignore content added by dbt Cloud# you shouldn't commit these into source control
-# these are the default directory names, adjust/add to fit your needs
+# dbt user-specific files
+.user.yml
+**/.user.yml
 target/
+
 dbt_packages/
-logs/
-# end dbt Cloud content
+packages/
+deps/
+
+
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+*.log

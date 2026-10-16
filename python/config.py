@@ -4,9 +4,7 @@ This module loads environment variables from a .env file and provides a CONFIG d
 for connecting to Snowflake, as well as other configuration constants.
 """
 
-
 import os
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
@@ -17,6 +15,9 @@ load_dotenv()
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 FOLDER_ID = os.getenv("FOLDER_ID")
 LANDING_FOLDER = os.getenv("LANDING_FOLDER", "data/landing/")
+
+# Quarantine folder for files that fail pre-validation. This is set via environment variable or defaults to "data/landing/quarantine".
+QUARANTINE_FOLDER = os.getenv("QUARANTINE_FOLDER", "data/landing/quarantine")
 
 
 # Expected Files, set via environment variables.
@@ -33,39 +34,20 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL")
 
+# Snowflake connection settings from environment variables
+SNOWFLAKE_ACCOUNT = os.getenv("SNOWFLAKE_ACCOUNT")
+SNOWFLAKE_USER = os.getenv("SNOWFLAKE_USER")
+SNOWFLAKE_PASSWORD = os.getenv("SNOWFLAKE_PASSWORD")
+SNOWFLAKE_DATABASE = os.getenv("SNOWFLAKE_DATABASE")
+SNOWFLAKE_WAREHOUSE = os.getenv("SNOWFLAKE_WAREHOUSE")
+SNOWFLAKE_ROLE = os.getenv("SNOWFLAKE_ROLE")
+SNOWFLAKE_SCHEMA = os.getenv("SNOWFLAKE_SCHEMA")
+RAW_DATA_PATH = os.getenv("RAW_DATA_PATH")
+SNOWFLAKE_PASSCODE = os.getenv("SNOWFLAKE_PASSCODE")
 
-# WEEKLY NOTIFICATION SCHEDULE CONFIG
-# 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
-DELIVERY_WEEKDAY = 0
-DELIVERY_HOUR_UTC = 13
-DELIVERY_MINUTE = 0
-SLA_HOURS = 1
+# === Key Pair Authentication ===
+PRIVATE_KEY_PATH = os.getenv("RSA_PRIVATE_KEY")
 
-# CALCULATE THIS WEEK'S DELIVERY DAY ONLY
-today = datetime.now(timezone.utc).date()
-current_week_start = today - \
-    timedelta(days=today.weekday())  # Monday of THIS week
-scheduled_this_week = current_week_start + \
-    timedelta(days=DELIVERY_WEEKDAY)  # This Friday
-
-# Determine the scheduled drop time based on today's date and the configured delivery weekday.
-if today > scheduled_this_week:
-    # Friday already passed → expect NEXT week
-    scheduled_date = scheduled_this_week + timedelta(weeks=1)
-else:
-    # Friday is coming up or today → expect THIS week
-    scheduled_date = scheduled_this_week
-
-# Build final timestamp for scheduled drop time
-SCHEDULED_DROP_TIME = datetime(
-    year=scheduled_date.year,
-    month=scheduled_date.month,
-    day=scheduled_date.day,
-    hour=DELIVERY_HOUR_UTC,
-    minute=DELIVERY_MINUTE,
-    second=0,
-    tzinfo=timezone.utc
-)
 
 # EXPECTED SCHEMA DICTIONARY PER FILE
 EXPECTED = {
@@ -132,21 +114,35 @@ EXPECTED = {
     }
 }
 
+# SLA TIMES - WEEKLY NOTIFICATION SCHEDULE CONFIG
+# 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
+DELIVERY_WEEKDAY = 4
+DELIVERY_HOUR_UTC = 10  # (11 AM UK time)
+DELIVERY_MINUTE = 0
+SLA_HOURS = 1
 
-# Quarantine folder for files that fail pre-validation. This is set via environment variable or defaults to "data/landing/quarantine".
-QUARANTINE_FOLDER = os.getenv("QUARANTINE_FOLDER", "data/landing/quarantine")
+# CALCULATE THIS WEEK'S DELIVERY DAY ONLY
+today = datetime.now(timezone.utc).date()
+current_week_start = today - \
+    timedelta(days=today.weekday())
+scheduled_this_week = current_week_start + \
+    timedelta(days=DELIVERY_WEEKDAY)
 
+# Determine the scheduled drop time based on today's date and the configured delivery weekday.
+if today > scheduled_this_week:
+    # Friday already passed → expect NEXT week
+    scheduled_date = scheduled_this_week + timedelta(weeks=1)
+else:
+    # Friday is coming up or today → expect THIS week
+    scheduled_date = scheduled_this_week
 
-# Snowflake connection settings from environment variables
-SNOWFLAKE_ACCOUNT = os.getenv("SNOWFLAKE_ACCOUNT")
-SNOWFLAKE_USER = os.getenv("SNOWFLAKE_USER")
-SNOWFLAKE_PASSWORD = os.getenv("SNOWFLAKE_PASSWORD")
-SNOWFLAKE_DATABASE = os.getenv("SNOWFLAKE_DATABASE")
-SNOWFLAKE_WAREHOUSE = os.getenv("SNOWFLAKE_WAREHOUSE")
-SNOWFLAKE_ROLE = os.getenv("SNOWFLAKE_ROLE")
-SNOWFLAKE_SCHEMA = os.getenv("SNOWFLAKE_SCHEMA")
-RAW_DATA_PATH = os.getenv("RAW_DATA_PATH")
-SNOWFLAKE_PASSCODE = os.getenv("SNOWFLAKE_PASSCODE")
-
-# === Key Pair Authentication ===
-PRIVATE_KEY_PATH = os.getenv("RSA_PRIVATE_KEY")
+# Build final timestamp for scheduled drop time
+SCHEDULED_DROP_TIME = datetime(
+    year=scheduled_date.year,
+    month=scheduled_date.month,
+    day=scheduled_date.day,
+    hour=DELIVERY_HOUR_UTC,
+    minute=DELIVERY_MINUTE,
+    second=0,
+    tzinfo=timezone.utc
+)

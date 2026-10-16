@@ -11,9 +11,9 @@ from python.snowflake_loader import get_connection
 from python.notifications import notify_post_validation_failure, notify_post_validation_summary
 from python.logger import setup_logging, section
 
-# Clean schema names — no duplicate suffix
-STAGING_SCHEMA = "DBT_YISMAIL_HL7"
-PROD_SCHEMA = "DBT_YISMAIL_HL7"
+# Schema names for staging and production layers
+STAGING_SCHEMA = "DBT_YISMAIL_HL7_HL7"
+PROD_SCHEMA = "DBT_YISMAIL_HL7_HL7"
 
 EXPECTED_TABLES = {
     # Staging tables
