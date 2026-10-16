@@ -17,23 +17,16 @@ SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 FOLDER_ID = os.getenv("FOLDER_ID")
 LANDING_FOLDER = os.getenv("LANDING_FOLDER", "data/landing/")
 
-
-# Google Drive service account JSON, set via environment variable.
+# Google Drive service account JSON
 SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT", "").strip()
-if not SERVICE_ACCOUNT_JSON:
-    raise ValueError(
-        "GOOGLE_DRIVE_SERVICE_ACCOUNT is empty!\n"
-        "Check .env locally OR GitHub Secrets in Actions → Settings"
-    )
 
-# NEW: Parse JSON into credentials object
-try:
+if SERVICE_ACCOUNT_JSON:
     GOOGLE_CREDENTIALS = json.loads(SERVICE_ACCOUNT_JSON)
-except json.JSONDecodeError as e:
-    raise ValueError(
-        f"Failed to parse GOOGLE_DRIVE_SERVICE_ACCOUNT JSON: {e}\n"
-        f"First 100 chars received: [{SERVICE_ACCOUNT_JSON[:100]}]"
-    )
+else:
+    # Local dev fallback
+    with open("service-account-key.json") as f:
+        GOOGLE_CREDENTIALS = json.load(f)
+
 
 # Quarantine folder for files that fail pre-validation. This is set via environment variable or defaults to "data/landing/quarantine".
 QUARANTINE_FOLDER = os.getenv("QUARANTINE_FOLDER", "data/landing/quarantine")
