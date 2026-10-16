@@ -16,10 +16,8 @@ clean-targets:
 models:
   caresync:
     staging:
+      +schema: null # Use default from the database for staging
       +database: NEXORA_STAGING
-      +schema: DBT_YISMAIL_HL7      
-      +materialized: table
     marts:
+      +schema: null # Use default schema from the database for marts
       +database: NEXORA_PROD
-      +schema: DBT_YISMAIL_HL7      
-      +materialized: table
