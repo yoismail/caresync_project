@@ -17,9 +17,9 @@ models:
   caresync:
     staging:
       +database: NEXORA_STAGING
-      # +schema: HL7  ← REMOVED — already in profile default schema
+      +schema: DBT_YISMAIL_HL7
       +materialized: table
     marts:
       +database: NEXORA_PROD
-      +schema: HL7
+      +schema: DBT_YISMAIL_HL7
       +materialized: table
