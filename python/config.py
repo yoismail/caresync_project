@@ -29,7 +29,7 @@ EXPECTED_FILES = [f.strip() for f in EXPECTED_FILES if f.strip()]
 # Notifications for pipeline alerts, set via environment variables.
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_PORT = int(os.getenv("SMTP_PORT") or "587")
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL")
