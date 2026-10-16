@@ -1,0 +1,13 @@
+caresync:
+  target: default
+  outputs:
+    default:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      private_key_path: "{{ env_var('RSA_PRIVATE_KEY') }}"
+      database: NEXORA_STAGING
+      schema: DBT_YISMAIL_HL7   
+      warehouse: COMPUTE_WH
+      role: SYSADMIN
+      threads: 6
