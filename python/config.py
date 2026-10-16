@@ -16,7 +16,10 @@ load_dotenv()
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 FOLDER_ID = os.getenv("FOLDER_ID")
 LANDING_FOLDER = os.getenv("LANDING_FOLDER", "data/landing/")
-
+RAW_DATA_PATH = os.getenv("RAW_DATA_PATH") or LANDING_FOLDER
+# Final safety — guarantee string
+if not RAW_DATA_PATH:
+    RAW_DATA_PATH = "data/landing/"
 
 # Google Drive service account JSON
 SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT", "").strip()
@@ -59,7 +62,6 @@ SNOWFLAKE_DATABASE = os.getenv("SNOWFLAKE_DATABASE")
 SNOWFLAKE_WAREHOUSE = os.getenv("SNOWFLAKE_WAREHOUSE")
 SNOWFLAKE_ROLE = os.getenv("SNOWFLAKE_ROLE")
 SNOWFLAKE_SCHEMA = os.getenv("SNOWFLAKE_SCHEMA")
-RAW_DATA_PATH = os.getenv("RAW_DATA_PATH", "data/landing/")
 SNOWFLAKE_PASSCODE = os.getenv("SNOWFLAKE_PASSCODE")
 
 # === Key Pair Authentication ===
