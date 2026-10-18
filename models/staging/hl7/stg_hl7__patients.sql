@@ -12,8 +12,9 @@ renamed as (
     select
         id                                      as patient_id,
 
-        -- Masked name from separate first + last columns
-        left(first, 1) || '.' || last           as patient_masked_name,
+        -- Masked name from separate first + last columns — both initialed,
+        -- never the full surname, so this can't re-identify a patient
+        left(first, 1) || '.' || left(last, 1) || '.' as patient_masked_name,
 
         -- PHI REMOVED — drop sensitive columns entirely
         -- ssn, drivers, passport, prefix, first, last, suffix, maiden, birthplace, full address → NOT included
@@ -40,7 +41,7 @@ renamed as (
         -- Reduce address — keep only region/county level
         case when state != '' then state else null end
                                                 as region,
-        nullif(city, '')                        as county,
+        nullif(county, '')                      as county,
 
         -- Financial values as proper numbers
         healthcare_expenses::number(18,2)       as healthcare_expenses,
