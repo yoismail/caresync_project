@@ -21,29 +21,29 @@ WARN = "⚠"
 ERR = "✗"
 
 POST_VALIDATION_DESCRIPTIONS = {
-    "NEXORA_STAGING.DBT_YISMAIL_HL7.STG_HL7__CONDITIONS":
+    "NEXORA_STAGING.DBT_YISMAIL_HL7_HL7.STG_HL7__CONDITIONS":
         "Staging: Conditions - table loaded & row count matches source",
-    "NEXORA_STAGING.DBT_YISMAIL_HL7.STG_HL7__ENCOUNTERS":
+    "NEXORA_STAGING.DBT_YISMAIL_HL7_HL7.STG_HL7__ENCOUNTERS":
         "Staging: Encounters - table loaded & row count matches source",
-    "NEXORA_STAGING.DBT_YISMAIL_HL7.STG_HL7__ORGANIZATIONS":
+    "NEXORA_STAGING.DBT_YISMAIL_HL7_HL7.STG_HL7__ORGANIZATIONS":
         "Staging: Organizations - table loaded & row count matches source",
-    "NEXORA_STAGING.DBT_YISMAIL_HL7.STG_HL7__PATIENTS":
+    "NEXORA_STAGING.DBT_YISMAIL_HL7_HL7.STG_HL7__PATIENTS":
         "Staging: Patients - table loaded & row count matches source",
-    "NEXORA_STAGING.DBT_YISMAIL_HL7.STG_HL7__PAYERS":
+    "NEXORA_STAGING.DBT_YISMAIL_HL7_HL7.STG_HL7__PAYERS":
         "Staging: Payers - table loaded & row count matches source",
-    "NEXORA_STAGING.DBT_YISMAIL_HL7.STG_HL7__PROVIDERS":
+    "NEXORA_STAGING.DBT_YISMAIL_HL7_HL7.STG_HL7__PROVIDERS":
         "Staging: Providers - table loaded & row count matches source",
-    "NEXORA_PROD.DBT_YISMAIL_HL7.DIM_ORGANIZATIONS":
+    "NEXORA_PROD.DBT_YISMAIL_HL7_HL7.DIM_ORGANIZATIONS":
         "Dimension: Organizations - model built successfully",
-    "NEXORA_PROD.DBT_YISMAIL_HL7.DIM_PATIENTS":
+    "NEXORA_PROD.DBT_YISMAIL_HL7_HL7.DIM_PATIENTS":
         "Dimension: Patients - model built & PHI masking applied",
-    "NEXORA_PROD.DBT_YISMAIL_HL7.DIM_PAYERS":
+    "NEXORA_PROD.DBT_YISMAIL_HL7_HL7.DIM_PAYERS":
         "Dimension: Payers - model built successfully",
-    "NEXORA_PROD.DBT_YISMAIL_HL7.DIM_PROVIDERS":
+    "NEXORA_PROD.DBT_YISMAIL_HL7_HL7.DIM_PROVIDERS":
         "Dimension: Providers - model built successfully",
-    "NEXORA_PROD.DBT_YISMAIL_HL7.FCT_APPOINTMENTS":
+    "NEXORA_PROD.DBT_YISMAIL_HL7_HL7.FCT_APPOINTMENTS":
         "Fact: Appointments - fact table built & linked to all dimensions",
-    "NEXORA_PROD.DBT_YISMAIL_HL7.FCT_CONDITIONS":
+    "NEXORA_PROD.DBT_YISMAIL_HL7_HL7.FCT_CONDITIONS":
         "Fact: Conditions - fact table built & linked to all dimensions",
     "Encounter reconciliation - STAGING = FACT":
         "Encounter Reconciliation - Staging counts = Fact counts",
@@ -59,7 +59,7 @@ def get_check_description(check_key):
         return POST_VALIDATION_DESCRIPTIONS[check_key]
     clean = check_key.replace("NEXORA_STAGING.", "") \
         .replace("NEXORA_PROD.", "") \
-        .replace("DBT_YISMAIL_HL7.", "") \
+        .replace("DBT_YISMAIL_HL7_HL7.", "") \
         .replace("STG_HL7__", "Staging: ") \
         .replace("DIM_", "Dimension: ") \
         .replace("FCT_", "Fact: ") \
