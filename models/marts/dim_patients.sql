@@ -4,6 +4,30 @@
     schema='HL7'
 ) }}
 
+with patients as (
+
+    select * from {{ ref('stg_hl7__patients') }}
+
+),
+
+aged as (
+
+    select
+        *,
+        -- Age as of death for deceased patients, as of today for active
+        -- ones — otherwise a deceased patient's age keeps climbing forever.
+        -- DATEDIFF('year', ...) alone only counts calendar-year boundaries
+        -- crossed, not whether the birthday has actually happened yet, so
+        -- subtract 1 when the as-of date falls before this year's birthday.
+        datediff('year', birthdate, coalesce(deathdate, current_date))
+            - case
+                when to_char(coalesce(deathdate, current_date), 'MMDD') < to_char(birthdate, 'MMDD')
+                then 1 else 0
+            end as age
+    from patients
+
+)
+
 select
     patient_id,
     patient_masked_name,  -- Already made in staging!
@@ -11,11 +35,11 @@ select
     marital_status,
     race,
     ethnicity,
-    datediff('year', birthdate, current_date) as age,
+    age,
     case
         when birthdate is null then null
-        when datediff('year', birthdate, current_date) < 18 then 'Minor'
-        when datediff('year', birthdate, current_date) between 18 and 64 then 'Adult'
+        when age < 18 then 'Minor'
+        when age between 18 and 64 then 'Adult'
         else 'Senior'
     end as age_group,
     birthdate,
@@ -28,4 +52,4 @@ select
     county,
     healthcare_expenses,
     healthcare_coverage
-from {{ ref('stg_hl7__patients') }}
+from aged
