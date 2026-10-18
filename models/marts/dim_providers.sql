@@ -4,30 +4,50 @@
     schema='HL7'
 ) }}
 
+WITH providers AS (
+
+    SELECT * FROM {{ ref('stg_hl7__providers') }}
+
+),
+
+-- utilization is a raw encounter count (Synthea's UTILIZATION field), not a
+-- 0-1 ratio, so tiers are terciles of the actual provider distribution
+-- rather than fixed fractional cutoffs that would put every provider in the
+-- top bucket.
+thresholds AS (
+
+    SELECT
+        PERCENTILE_CONT(0.33) WITHIN GROUP (ORDER BY utilization) AS p33,
+        PERCENTILE_CONT(0.67) WITHIN GROUP (ORDER BY utilization) AS p67
+    FROM providers
+    WHERE utilization IS NOT NULL
+
+)
 
 SELECT
-    provider_id,
-    organization_id,
-    provider_name,
-    gender,
-    specialty,
-    city,
-    region,
-    utilization,
-    loaded_at,
+    p.provider_id,
+    p.organization_id,
+    p.provider_name,
+    p.gender,
+    p.specialty,
+    p.city,
+    p.region,
+    p.utilization,
+    p.loaded_at,
 
-    -- Business categorization 
+    -- Business categorization
     CASE
-        WHEN specialty IN ('General Practice', 'Family Practice', 'Primary Care') THEN 'Primary Care'
-        WHEN specialty IN ('Internal Medicine', 'Cardiology', 'Neurology', 'Pediatrics') THEN 'Specialist'
+        WHEN p.specialty IN ('General Practice', 'Family Practice', 'Primary Care') THEN 'Primary Care'
+        WHEN p.specialty IN ('Internal Medicine', 'Cardiology', 'Neurology', 'Pediatrics') THEN 'Specialist'
         ELSE 'Other Specialty'
     END AS specialty_category,
 
     CASE
-        WHEN utilization >= 0.8 THEN 'High Caseload'
-        WHEN utilization >= 0.5 THEN 'Moderate Caseload'
-        WHEN utilization IS NOT NULL THEN 'Low Caseload'
+        WHEN p.utilization >= t.p67 THEN 'High Caseload'
+        WHEN p.utilization >= t.p33 THEN 'Moderate Caseload'
+        WHEN p.utilization IS NOT NULL THEN 'Low Caseload'
         ELSE 'Unknown'
     END AS caseload_level
 
-FROM {{ ref('stg_hl7__providers') }}
+FROM providers p
+CROSS JOIN thresholds t
