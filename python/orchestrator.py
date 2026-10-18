@@ -199,7 +199,7 @@ def orchestrate():
                 count_fresh += 1
                 loaded_tables_list.append(stem)
                 logging.info(f"  Rows written to RAW: 0 (already up to date)")
-                logging.info(f"  STATUS: LOADED")
+                logging.info(f"  STATUS: FRESH")
 
         except Exception as e:
             entry["status"] = "FAILED"
