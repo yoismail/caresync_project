@@ -17,7 +17,6 @@ SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 FOLDER_ID = os.getenv("FOLDER_ID")
 LANDING_FOLDER = os.getenv("LANDING_FOLDER", "data/landing/")
 RAW_DATA_PATH = os.getenv("RAW_DATA_PATH") or LANDING_FOLDER
-# Final safety — guarantee string
 if not RAW_DATA_PATH:
     RAW_DATA_PATH = "data/landing/"
 
@@ -133,10 +132,11 @@ EXPECTED = {
     }
 }
 
+
 # SLA TIMES - WEEKLY NOTIFICATION SCHEDULE CONFIG
 # 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
-DELIVERY_WEEKDAY = 4
-DELIVERY_HOUR_UTC = 10  # (11 AM UK time)
+DELIVERY_WEEKDAY = 6
+DELIVERY_HOUR_UTC = 13  # (1 PM UK time)
 DELIVERY_MINUTE = 0
 SLA_HOURS = 1
 
