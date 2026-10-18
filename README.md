@@ -1,385 +1,350 @@
-
-TL;DR
-CareSync is a quality-gated ELT platform that turns unreliable weekly clinic file deliveries into a trusted reporting database. Files are sensed, validated, loaded, transformed, and verified with SLA monitoring, quarantine, cascade-skip logic, and full stakeholder notifications.
-Stack: Python 3.11, Google Drive API, GitHub Actions, Snowflake, dbt, Slack/Email alerts
-Runtime: 3 to 5 minutes end-to-end pipeline, scheduled weekly at 11:00 AM UK time on Fridays
-Scale: 6 CSVs, approximately 114K total rows, schema-enforced with per-file row bounds and value validation
-Author: Yomi Ismail, Data Engineer (Suffolk, UK)
-Table of Contents
-
-• Project Summary
-
-• Business Context
-
-• Project Purpose
-
-• Expected Outcomes
-
-• Project Objectives
-
-• In Scope
-
-• Out of Scope
-
-• The Problem
-
-• Stack Overview
-
-• Business Impact
-
-• Architecture
-
-• Data Model and Schemas
-
-• Data Quality Story
-
-• Engineering Decisions
-
-• How to Reproduce
-
-• Repository Structure
-
-• Honest Limits
-
-• About the Author
-
-• Connect
-
-• License
-Project Summary
-
-CareSync is a quality-gated ELT platform that turns unreliable weekly clinic file deliveries into a trusted reporting database. Every week, a third-party agent drops six CSV exports into Google Drive. The pipeline senses each file under a one-hour SLA, runs it through a pre-validation gate before ingestion, loads validated files into Snowflake, transforms them with dbt into a single-fact star schema, and then runs a post-validation gate that verifies the reporting layer satisfies business requirements. Files that fail pre-validation are quarantined and their processing tasks are skipped, not failed, while stakeholders are notified automatically via Slack and email.
-
-The project is delivered in two tooling stages. Everything is first built and proven with Python pandas validation orchestrated by GitHub Actions, then productionized by replacing every pandas check with Great Expectations suites and replacing GitHub Actions with Airflow. All data is synthetic, generated with Synthea.
-Business Context
-
-Nexora's partner clinics do not deliver data directly. A third-party data aggregation agent consolidates each clinic's weekly export and delivers six CSV files into a shared Google Drive folder on a contractual schedule. Clinic operations reviews, provider workload planning, and payer reconciliation all run off the weekly CareSync reports, so the timeliness and correctness of these files directly affect operational decisions across the clinic network.
-
-Because a third party sits in the delivery chain, Nexora controls neither when files arrive nor what condition they arrive in. Delivery times drift, export formats change when clinic systems are upgraded, and files can arrive truncated or malformed.
-
-Because this project is intended for development and testing, Nexora uses synthetic healthcare data generated with Synthea, an open-source synthetic patient generator. This provides realistic healthcare records with no exposure of sensitive patient information.
-Project Purpose
-
-To deliver trustworthy weekly clinic reporting by ensuring that only validated data enters the warehouse, only verified data reaches stakeholders, and every quality event including late file, rejected file, failed business check, or successful run, is communicated to stakeholders automatically.
-Expected Outcomes
-
-By the end of the project:
-
-• Every incoming file is validated before ingestion; no unvalidated data can reach Snowflake.
-
-• A failed file is quarantined and its processing is skipped, with the skip cascading to dependent datasets, while all healthy files load normally.
-
-• Stakeholders receive Slack and email notifications for SLA misses, validation failures, task errors, and successful runs, each traceable by run ID.
-
-• The production reporting layer is verified against business requirements on every run before it is treated as trusted.
-
-• File arrival is monitored against a one-hour SLA, creating an audit trail of third-party delivery performance.
-
-• The full pipeline exists in both forms: the pandas plus GitHub Actions testing build, and the Great Expectations plus Airflow production build.
-
-• A complete audit trail including run logs, validation results, quarantined files, and notification history supports every weekly run.
-Project Objectives
-
-• File sensing with SLA: Detect each expected weekly file in Google Drive; if a file has not arrived within one hour of its scheduled delivery time, alert stakeholders via Slack and email.
-
-• Pre-validation: Before ingestion, run every file through a validation pipeline including schema compliance, mandatory field checks, identifier format, value ranges, date chronology, duplicate detection, and row-count sanity bounds.
-
-• Skip, do not fail: A file that fails validation is quarantined and its downstream tasks are skipped, with skip status propagating to dependent datasets. All unaffected files continue processing normally.
-
-• Notifications: Slack and email alerts for SLA misses, validation failures, task errors, post-validation results, and a consolidated success summary at the end of each run.
-
-• Load and transform: Load clean data into Snowflake RAW layer; use dbt to build a PHI-minimized star schema in the reporting warehouse, removing direct identifiers from the analytics layer.
-
-• Post-validation: Confirm final tables meet business requirements including row counts, key uniqueness, referential integrity, and record completeness.
-
-• Dev-to-prod maturity path: Build and validate the pipeline locally with Python pandas and GitHub Actions; productionize by migrating validation suites to Great Expectations and orchestration to Apache Airflow.
-In Scope
-
-• Six standard Synthea HL7 datasets: patients, encounters also known as appointments, organizations, providers, payers, conditions
-
-• Google Drive as the weekly delivery landing zone with one-hour arrival SLA monitoring
-
-• Two-stage validation: pre-ingestion checks in Python, followed by business-rule post-validation in the data warehouse
-
-• Quarantine store and cascade-skip logic for failed files
-
-• Slack and email notification system covering all pipeline events
-
-• Snowflake data warehouse architecture: RAW to STAGING to PROD
-
-• dbt transformations producing a star schema: fct_appointments plus dimensions plus conditions detail table, with PHI minimization applied
-
-• GitHub Actions orchestration for development and testing; Airflow DAG as production target architecture
-
-• Run audit logging and persistent quarantine for rejected files
-
-• SQL-based reporting and data-quality validation queries
-Out of Scope
-
-• Real patient data or live clinic system integration: all datasets are synthetic HL7 from the Synthea project
-
-• Additional Synthea domains including observations, medications, claims, procedures, and immunizations are excluded from the current reporting boundary
-
-• Real-time or streaming ingestion: pipeline operates on a scheduled weekly batch cadence
-
-• BI dashboards: the data warehouse and marts layer is the delivery handoff point
-
-• Advanced identity management or access governance: role-based access is assumed at the Snowflake account level
-
-• Machine learning workloads or predictive analytics: descriptive reporting only
-The Problem
-
-Six standard HL7 CSV files are expected every week:
-Dataset File Typical Rows Purpose 
-Patients patients.csv Approximately 1,000 Demographics and patient profiles 
-Encounters encounters.csv Approximately 60,000 Patient care visits and appointments 
-Conditions conditions.csv Approximately 38,000 Diagnoses and clinical history 
-Providers providers.csv Approximately 5,000 Healthcare practitioners 
-Payers payers.csv 10 Insurance providers and financial metrics 
-Organizations organizations.csv Approximately 1,100 Healthcare facilities and locations 
-
-Files arrived inconsistently. Sometimes late, sometimes missing columns, sometimes with illogical values. No automated validation meant bad data reached downstream reports. No versioned history of file deliveries. No SLA awareness or alerts. Analysts manually verified every weekly drop before trusting the data.
-Stack Overview
-Layer Technology Purpose 
-Orchestration Python Orchestrator plus GitHub Actions Sensor to Validate to Load to Transform to Notify 
-Source Google Drive API Monitors target folder for 6 expected files 
-Validation Python schema definitions Columns, mandatory fields, UUID formats, allowed values, row counts 
-Storage Local runner or GitHub workspace data/landing/ for raw files, data/landing/quarantine/ for invalid files 
-Data Warehouse Snowflake RAW, STAGING, PROD schemas 
-Transformation dbt or Data Build Tool Star schema: fact table plus dimensions, PHI minimization 
-Scheduling GitHub Actions Schedule Trigger Weekly Friday at 11:00 AM UK time with automatic DST adjustment 
-Notifications Slack Webhook plus SMTP Email Pipeline success or failure alerts plus SLA breach warnings 
-Language Python 3.11, SQL Sensor logic, config, validation, dbt models and tests 
-
-Business Impact
-
-Before this pipeline:
-
-• Manual file check every Friday morning to confirm files arrived
-
-• No consistent schema definition so it was unclear if a CSV had all required columns
-
-• Bad data was silently loaded with no visibility into inconsistent values
-
-• No timestamp record of when files actually arrived
-
-• No automated notification system when loads failed
-
-After this pipeline:
-
-• Arrival confidence: Sensor confirms all 6 files present before processing begins
-
-• SLA protection: One-hour delivery window monitored with immediate alerts for late files
-
-• Schema enforcement: Missing columns, wrong types, or out-of-range values result in quarantine while pipeline continues
-
-• Skip-not-fail semantics: One bad file does not block the entire weekly run
-
-• Transparent flow: Every step is logged, timestamped, and summarized in one notification
-
-• Analytics ready: dbt produces a clean, PHI-minimized star schema with built-in data tests
-Architecture
-
-Google Drive Folder containing 6 CSV files
-|
-v
-Step 0: Sensor and SLA Check
-Check folder for file presence and arrival time against SLA
-|
-+-- SLA Miss ------------------------------ Send Alert
-|
-v SLA OK and 6 files found
-Step 1: Pre-Validation
-Schema Check then Value and Row Check
-|
-+-- Fail -> Quarantine File -> Skip Dependent Files -> Send Notification
-|
-v Pass
-Step 2: Load to Snowflake.RAW
-|
-v
-Step 3: Transform with dbt
-Staging then Dimensions and Fact Table then dbt Tests
-|
-v
-Step 4: Post-Validation
-Row counts, uniqueness, referential integrity, completeness
-|
-v
-Step 5: Notify Stakeholders
-Slack and Email: success or failure with full summary
-
-Pipeline flow in detail:
-
-SENSOR AND SLA CHECK
-Scheduled: Friday 11:00 AM UK time
-SLA window: 1 hour with deadline at 12:00 PM
-File count: 6 expected then 6 found
-Download CSVs to data/landing/
-
-PRE-VALIDATION per file
-Schema: all required columns present
-Mandatory fields: no empty identifiers
-Format: UUIDs and dates parse correctly
-Values: coded fields within allowed sets
-Chronology: start date is less than or equal to end date
-Duplicates: no duplicate primary keys
-Row sanity: count within expected bounds
-PASS: Load to Snowflake.RAW
-FAIL: Quarantine file and skip downstream tasks while other files continue
-
-LOAD TO SNOWFLAKE
-COPY INTO RAW.HL7.table_name
-
-DBT BUILD
-Staging models with PHI columns masked or dropped
-Dimensions: patients, providers, payers, organizations
-Fact table: fct_appointments plus conditions detail
-Built-in data tests run automatically
-
-POST-VALIDATION
-Row count verification: RAW matches PROD
-Key uniqueness: no duplicates in final tables
-Referential integrity: all keys resolve correctly
-Completeness: no unexpected nulls in critical fields
-
-NOTIFY
-Slack alerts for SLA miss, validation fail, pipeline success, post-validation result
-Email summary with row counts, skipped files, and quarantine details
-
-End-to-end runtime: 3 to 5 minutes. Cost: Free tier eligible.
-Data Model and Schemas
-
-Three conceptual layers in Snowflake:
-
-• RAW.HL7: Landing tables that mirror CSV structure exactly. Source-of-truth archive.
-
-• STAGING: Cleaned and standardized. PHI columns identified and prepared for exclusion.
-
-• PROD: Star schema. Fact table fct_appointments linked to dimensions. Direct identifiers including names, SSNs, and document numbers are removed.
-
-Folder structure:
-
-caresync_project/
-├── data/
-│   ├── landing/                 # Sensor downloads CSVs here
-│   └── landing/quarantine/      # Invalid files with timestamp and reason
-└── sla_report.json              # Generated on each run
-Data Quality Story
+# 🏥❄️ CareSync: Quality-Gated ELT Platform for Weekly Clinic Reporting
+
+[![Python](https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white)](https://www.python.org)
+[![Google Drive API](https://img.shields.io/badge/Google_Drive_API-Sensing-4285F4?logo=googledrive&logoColor=white)](https://developers.google.com/drive)
+[![Snowflake](https://img.shields.io/badge/Snowflake-Warehouse-29B5E8?logo=snowflake&logoColor=white)](https://www.snowflake.com)
+[![dbt](https://img.shields.io/badge/dbt-Transformation-FF694B?logo=dbt&logoColor=white)](https://www.getdbt.com)
+[![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-Orchestration-2088FF?logo=githubactions&logoColor=white)](https://github.com/features/actions)
+
+> **TL;DR**
+> 🏥❄️ Healthcare Analytics (CareSync): a quality-gated ELT platform that turns unreliable third-party weekly clinic file deliveries into a trusted Snowflake reporting database for clinic operations, provider workload planning, and payer reconciliation.
+> **Stack:** Python 3.x, Google Drive API, GitHub Actions, Snowflake, dbt, Slack + Email alerts
+> **Runtime:** ~2m 59s end-to-end pipeline, scheduled weekly on Sundays at 13:00 UTC with a 1-hour SLA window
+> **Scale:** 6 CSVs, ~107K total rows across patients, encounters, conditions, providers, organizations, and payers; 38 dbt tests plus 15 post-validation checks on every run
+> **Author:** Yomi Ismail, Data Engineer (Suffolk, UK)
+
+---
+
+## 📋 Table of Contents
+
+- [About the Business](#about-the-business)
+- [The Problem](#the-problem)
+- [Stack Overview](#stack-overview)
+- [Business Impact](#business-impact)
+- [Architecture](#architecture)
+- [Data Model and Schemas](#data-model-and-schemas)
+- [Data Quality Story](#data-quality-story)
+- [Engineering Decisions](#engineering-decisions)
+- [Attribution](#attribution)
+- [How to Reproduce](#how-to-reproduce)
+- [Repository Structure](#repository-structure)
+- [Honest Limits](#honest-limits)
+- [About the Author](#about-the-author)
+- [Connect](#connect)
+- [License](#license)
+
+---
+
+## About the Business
+
+Nexora's partner clinics don't deliver data directly. A third-party data aggregation agent consolidates each clinic's weekly export and drops six CSV files into a shared Google Drive folder on a contractual schedule. Clinic operations reviews, provider workload planning, and payer reconciliation all run off these weekly CareSync reports, so the timeliness and correctness of the files directly affects operational decisions across the clinic network.
+
+Because a third party sits in the delivery chain, Nexora controls neither when the files arrive nor what condition they arrive in. Delivery times drift, export formats change when upstream clinic systems are upgraded, and files can arrive truncated or malformed.
+
+The brief: build a platform that doesn't just move the files, but proves they're trustworthy before anyone reports off them — sensed against an SLA, validated before they touch the warehouse, transformed into a reporting-ready schema, and verified again after transformation, with every outcome communicated automatically. All data is synthetic, generated with [Synthea](https://synthetichealth.github.io/synthea/), an open-source synthetic patient generator, so the project carries no real patient information.
+
+---
+
+## The Problem
+
+Six CSV files are expected every week:
+
+| Dataset | File | Rows | Purpose |
+|---|---|---|---|
+| Organizations | `organizations.csv` | 1,127 | Healthcare facilities and locations |
+| Payers | `payers.csv` | 10 | Insurance providers and financial metrics |
+| Providers | `providers.csv` | 5,056 | Healthcare practitioners |
+| Patients | `patients.csv` | 1,163 | Demographics and patient profiles |
+| Encounters | `encounters.csv` | 61,459 | Patient care visits and appointments |
+| Conditions | `conditions.csv` | 38,094 | Diagnoses and clinical history |
+
+Files arrived inconsistently: sometimes late, sometimes with malformed values, sometimes early (which is its own problem — an early file can mean the upstream export ran against incomplete data). There was no automated validation, so bad data could reach downstream reports unnoticed. There was no record of when files actually arrived relative to the agreed schedule, and no SLA awareness or alerting. Before this pipeline, trusting a weekly drop meant manually checking it.
+
+---
+
+## Stack Overview
+
+| Layer | Technology | Purpose |
+|---|---|---|
+| **Orchestration** | Python orchestrator + GitHub Actions | Sense → Validate → Load → Transform → Verify → Notify, in strict dependency order |
+| **Source** | Google Drive API | Monitors the shared delivery folder for the 6 expected files, isolated behind a swappable interface |
+| **Validation** | Python + pandas | Schema, mandatory fields, UUID format, allowed values, chronology, duplicates, row-count bounds |
+| **Warehouse** | Snowflake | `NEXORA_RAW` → `NEXORA_STAGING` → `NEXORA_PROD`, key-pair (RSA/PKCS8) authentication |
+| **Transformation** | dbt | 6 staging models + 4 dimensions + 2 facts, single-fact-grain star schema, 38 generic tests |
+| **Scheduling** | GitHub Actions Schedule Trigger | Weekly, Sunday 13:00 UTC, 1-hour SLA window |
+| **Notifications** | Slack Incoming Webhook + SMTP Email | SLA misses, validation failures, task errors, and a consolidated run summary |
+| **Language** | Python 3.x, SQL | Sensor, validation, loading, orchestration, notifications; dbt models and tests |
+
+---
+
+## Business Impact
+
+**Before this pipeline:**
+- Manual check every week to confirm all 6 files had actually arrived
+- No consistent schema enforcement, so a dropped or renamed column could reach the warehouse unnoticed
+- No timestamped record of when files actually arrived relative to the agreed delivery window
+- A single bad file could block or corrupt the whole weekly load, with no isolation
+- No automated notification when a load failed or a file was late
+
+**After this pipeline:**
+- Arrival confidence: the sensor confirms all 6 files are present and classifies each as on-time, missing, too-early, or late against a 1-hour SLA window
+- Schema enforcement: missing columns, wrong formats, or out-of-range values get a file quarantined while the rest of the run continues
+- Skip-not-fail semantics: a quarantined file's downstream dependents are cascade-skipped rather than crashing the run, while unaffected files load normally
+- Idempotent loads: a SHA-256 content hash means re-running a week's load never double-counts rows, no `TRUNCATE` required
+- Analytics-ready output: dbt produces a PHI-minimized star schema with 38 built-in tests, independently re-verified by 15 post-validation checks
+- Transparent flow: every stage is logged and timestamped, and the full outcome lands in Slack and email within seconds of the run finishing
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph SRC["Third-Party Delivery"]
+        DRIVE["Google Drive folder<br/>6 CSV files"]
+    end
+
+    subgraph SENSE["Sense + Validate"]
+        SENSOR["sensor.py<br/>SLA classify + download"]
+        PREVAL["pre_validation.py<br/>schema, UUIDs, chronology"]
+    end
+
+    subgraph RAW["NEXORA_RAW"]
+        RAWT["6 RAW tables<br/>SHA-256 idempotent loads"]
+    end
+
+    subgraph DBT["dbt build"]
+        STG["6 staging models<br/>PHI minimized/masked"]
+        MARTS["4 dims + 2 facts<br/>single-fact-grain star schema"]
+    end
+
+    subgraph VERIFY["Verify + Notify"]
+        POSTVAL["post_validation.py<br/>15 independent checks"]
+        NOTIFY["notifications.py<br/>Slack + Email"]
+    end
+
+    DRIVE --> SENSOR
+    SENSOR --> PREVAL
+    PREVAL -->|pass| RAWT
+    PREVAL -->|fail| QUARANTINE["quarantine/<br/>+ cascade-skip dependents"]
+    RAWT --> STG
+    STG --> MARTS
+    MARTS --> POSTVAL
+    POSTVAL --> NOTIFY
+    QUARANTINE --> NOTIFY
+```
+
+The orchestrator runs six stages in strict dependency order: sense, validate, load, transform, verify, notify. A Google Drive sensor checks for the six expected files under a one-hour SLA and classifies each as on-time, missing, too-early, or late. A pandas pre-validation gate runs seven checks per file (schema, mandatory fields, UUID format, allowed values, chronology, duplicate IDs, row-count bounds) before anything touches the warehouse. Healthy files load into Snowflake's `NEXORA_RAW` layer with idempotent, content-hashed writes; a file that fails validation is quarantined, and the dependency graph (`organizations` → `patients` → `encounters` → `conditions`, etc.) cascade-skips anything downstream of it rather than failing the whole run. dbt transforms `NEXORA_RAW` into a staging layer, then a single-fact-grain star schema in `NEXORA_PROD`. A post-validation gate independently re-verifies the finished reporting layer — not just that dbt's own tests passed, but that the warehouse the business actually queries reconciles.
+
+```
+Sensor check + download          (~13s)
+    │
+    ▼
+Pre-validate + load to RAW        (~85s, 6 files, strict dependency order)
+    │
+    ▼
+dbt build                         (~31s; 12 models, 38 tests)
+    │
+    ▼
+Post-validation                   (~43s; 15 checks)
+    │
+    ▼
+Notify: Slack + Email summary
+```
+
+**End-to-end runtime:** ~2 minutes 59 seconds. **Schedule:** weekly, Sunday 13:00 UTC. **Cost:** free-tier eligible (GitHub Actions free minutes + Snowflake trial credit).
+
+---
+
+## Data Model and Schemas
+
+**Three layers in Snowflake:**
+
+- **`NEXORA_RAW`**: landing tables that mirror the validated CSV structure. Loaded via an idempotent SHA-256 content-hash check against a `FILE_HASH` column, so re-running a week never duplicates rows.
+- **`NEXORA_STAGING`**: cleaned and standardized by dbt. This is where PHI is minimized — direct identifiers are excluded by omission rather than deleted downstream, and patient names are reduced to masked initials.
+- **`NEXORA_PROD`**: the single-fact-grain star schema dbt builds on top of staging — the layer the business actually reports off.
+
+**Mart layer table catalog:**
+
+| Table | Type | Grain | Purpose |
+|---|---|---|---|
+| `dim_organizations` | Dimension | One row per facility | Healthcare facilities, revenue tier, utilization tier |
+| `dim_payers` | Dimension | One row per payer | Insurance providers, coverage and size tier |
+| `dim_providers` | Dimension | One row per practitioner | Providers, specialty category, caseload tier |
+| `dim_patients` | Dimension | One row per patient | Masked initials, age (as-of death for deceased patients), age group, region |
+| `fct_appointments` | Fact | One row per encounter | Visits with duration, coverage status, and time-of-day category |
+| `fct_conditions` | Fact | One row per diagnosis | Diagnoses with active/resolved status and duration |
+
+**Repository-relevant data paths:**
+
+```
+data/
+├── landing/               # Sensor downloads land here before validation
+└── landing/quarantine/    # Files that fail pre-validation, kept for review
+
+sla_report.json            # Generated on each run — SLA classification per file
+```
+
+---
+
+## Data Quality Story
 
 Two independent validation layers catch different failure modes:
 
-Layer 1: Pre-Validation before Warehouse Ingestion
+### Layer 1: Pre-validation before warehouse ingestion
 
-Every file is assessed before any data leaves the landing zone. Failures are specific including which file, which check, and which row. The file is quarantined rather than dropped. Other files proceed normally. Dependent files that reference a skipped file are also skipped through cascade logic, preventing foreign-key errors downstream.
+Every file is assessed before any of its data leaves the landing zone: schema compliance, mandatory field presence, UUID format, allowed values, date chronology, duplicate primary keys, and row-count sanity bounds. A failure is specific — which file, which check, which row — and the file is quarantined rather than silently dropped. Files that depend on a quarantined file are cascade-skipped through the dependency graph (`organizations` → `patients` → `encounters` → `conditions`), so one bad file can't produce an orphaned-FK load elsewhere. Unaffected files continue processing normally.
 
-Layer 2: Post-Validation after Transformation
+### Layer 2: Post-validation after transformation
 
-Once the reporting schema is built, the pipeline verifies business outcomes rather than just technical validity. Are row counts stable across layers? Do all keys resolve? Is the fact table complete? These answers form the report-ready confirmation sent to stakeholders.
-Engineering Decisions
+Once dbt has built the reporting schema, `post_validation.py` independently re-verifies the finished product: 12 table-existence-and-row-count checks across staging and marts, plus 3 business reconciliation queries (staging-to-fact row parity, no future-dated encounters, patient counts matching across layers). This is deliberately separate from dbt's own 38 generic tests — passing dbt's tests proves the input was well-formed; post-validation proves the warehouse the business queries is actually correct.
 
-1. Validate early, quarantine visibly, skip gracefully.
-Bad data is cheapest to fix at the source. Reject before loading, keep the file for inspection, and skip only what depends on it. The rest of the pipeline delivers value. Tradeoff: some reports will be partial that week. Benefit: no silent data loss and bad data is preserved rather than erased.
+### Why two gates instead of one
 
-2. SLA monitoring separate from file processing.
-The sensor answers two questions independently: Did the files arrive? and Did they arrive on time? A late file can still be processed, but the SLA alert fires regardless. This separates operational discipline from data validity.
+A single validation pass at ingestion only proves the input was well-formed — it says nothing about whether the finished warehouse reconciles after a full dbt rebuild. Splitting pre- and post-validation catches different failure classes: a malformed source row never reaches the warehouse, and a transformation bug that technically "builds" but produces the wrong output still gets caught before stakeholders see the notification.
 
-3. Two-phase validation: technical then business.
-Pre-validation ensures the computer can read the file. Post-validation ensures the business can trust the output. Technical errors such as wrong delimiter fail immediately. Business questions such as whether zero encounters for a provider is plausible are answered after the full model is built.
+---
 
-4. Dev-first architecture: Python to Great Expectations and GitHub Actions to Airflow.
-Build and iterate fast with lightweight tools. Once the validation rules are proven in production, swap the implementation layer without rewriting the business logic. This separates what we check from how we run it.
+## Engineering Decisions
 
-5. PHI minimization at the staging boundary.
-Direct identifiers are excluded before the data enters the final reporting schema. The RAW layer retains original data for troubleshooting while the PROD layer never exposes names, SSNs, or document numbers. This is a deliberate architectural boundary rather than a late transformation step.
-How to Reproduce
+**1. Quarantine + cascade-skip over fail-fast.**
+A bad file could fail the whole run, or get silently dropped, or get quarantined with its dependents skipped. Chose quarantine with cascade-skip through the dependency graph: the bad file is preserved for inspection, everything that depends on it is skipped rather than loaded with broken foreign keys, and everything unaffected still processes. Tradeoff: a bad week means a partial report. Gain: no silent data loss, and no corrupted downstream tables.
 
-Prerequisites
+**2. Idempotent loads via content hash, not `TRUNCATE`.**
+Re-running a week's load could `TRUNCATE` and reload, or check before inserting. Chose a SHA-256 hash of filename plus file bytes, checked against a `FILE_HASH` column before insert. Tradeoff: slightly more bookkeeping per load. Gain: safe re-runs without a destructive `TRUNCATE`, and a verifiable record of exactly which file version loaded which rows.
 
-• Python 3.11 or newer
+**3. Key-pair auth over password for Snowflake.**
+Snowflake supports both. Chose RSA/PKCS8 key-pair authentication over a password, loaded via the `cryptography` library. Tradeoff: more setup (key generation, public key registration in Snowflake). Gain: no password in CI secrets, rotation without touching application code, and a connection method that survives Snowflake's own password-deprecation direction.
 
-• Snowflake account
+**4. A genuinely swappable source interface.**
+The Google Drive API calls in `sensor.py` sit behind two functions rather than being called inline throughout the pipeline. Tradeoff: a small layer of indirection for a project with only one source today. Gain: a future migration to SFTP or another delivery mechanism touches only that isolated boundary, not the SLA logic, the validation logic, or the orchestrator.
 
-• Google Cloud service account with Drive API access
+**5. PHI minimized at the staging boundary, not downstream.**
+PHI could be filtered out at any layer, or redacted after the fact. Chose exclusion by omission in the staging models themselves — columns like SSN, driver's license, and full address are simply never selected, and patient names are masked to initials at the same boundary. Tradeoff: `NEXORA_RAW` still holds full source data for troubleshooting. Gain: the reporting layer never has PHI to leak in the first place, because it's structurally absent rather than filtered late.
 
-• GitHub repository with Actions enabled
+**6. Prove it with pandas + GitHub Actions before Great Expectations + Airflow.**
+The validation and orchestration logic could be built directly on production-grade tooling, or proven cheaply first. Chose to build and iterate with pandas checks and a GitHub Actions cron trigger, with the explicit intent to swap in Great Expectations suites and an Airflow DAG once the rules are proven. Tradeoff: the current implementation isn't production tooling yet. Gain: the pipeline shape (sense → validate → load → transform → verify → notify) is already correct, so the swap changes tooling, not architecture.
 
-Setup Steps
+**7. Post-validation as a second, independent gate.**
+dbt's own generic tests could be treated as sufficient. Added a separate `post_validation.py` pass that re-verifies table population and runs reconciliation queries independently of dbt's test framework. Tradeoff: some overlap with what dbt tests already check. Gain: a transformation bug that technically passes dbt's own tests but produces a warehouse the business can't trust still gets caught before the success notification goes out.
 
-1. Fork the repository
+---
 
-2. Configure .env from .env.example including Google Drive folder ID, Snowflake credentials, notification endpoints, and SLA schedule
+## Attribution
 
-3. Service account access: grant your service account viewer permission on the Google Drive delivery folder
+The synthetic patient data used in this project is generated with **[Synthea](https://synthetichealth.github.io/synthea/)**, an open-source synthetic patient population simulator originally developed at The MITRE Corporation. It produces realistic HL7-shaped healthcare records — patients, encounters, conditions, providers, payers, and organizations — with no real patient information involved anywhere in the pipeline.
 
-4. Snowflake schema setup: run DDL scripts to create RAW, STAGING, and PROD layers
+The pipeline architecture, data quality design, orchestration logic, dbt modeling, and engineering decisions are original work by Yomi Ismail.
 
-5. dbt profile: configure profiles.yml with Snowflake target; run dbt deps then dbt build to test locally
+---
 
-6. GitHub Secrets: store all .env values as encrypted repository secrets
+## How to Reproduce
 
-7. Enable workflow: the weekly schedule activates on merge to main; use the Run workflow button for manual tests
-Repository Structure
+Prerequisites:
 
+- Python 3.x
+- A Snowflake account (trial is sufficient)
+- A Google Cloud service account with read access to the delivery Drive folder
+- A GitHub repository with Actions enabled
+
+Setup steps:
+
+1. **Fork the repository.**
+2. **Install dependencies.** `pip install -r requirements.txt`.
+3. **Google Drive access.** Create a Google Cloud service account with Drive API read scope, share the delivery folder with its email address, and set `FOLDER_ID` to that folder's ID. Provide credentials either as `GOOGLE_DRIVE_SERVICE_ACCOUNT` (the service account JSON as an env var) or as a local `service-account-key.json`.
+4. **Snowflake key-pair auth.** Generate an RSA key pair, register the public key on your Snowflake user, and point `RSA_PRIVATE_KEY` at the private key. Set `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_DATABASE`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_ROLE`.
+5. **Snowflake schema setup.** Create the `NEXORA_RAW`, `NEXORA_STAGING`, and `NEXORA_PROD` databases/schemas referenced in the dbt model configs.
+6. **dbt profile.** Configure `.dbt/profiles.yml` with your Snowflake target, then `dbt deps` and `dbt build` to test locally.
+7. **Notifications.** Set `SLACK_WEBHOOK_URL` for Slack alerts, and `SMTP_SERVER` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `NOTIFICATION_EMAIL` for email alerts.
+8. **GitHub Secrets.** Store every environment variable above as an encrypted repository secret.
+9. **Enable the workflow.** The weekly schedule (`.github/workflows/pipeline.yml`, Sundays at 13:00 UTC) activates on merge to `main`; use the Run workflow button for manual tests.
+
+---
+
+## Repository Structure
+
+```
 caresync_project/
 ├── python/
-│   ├── config.py                  # Paths, schemas, SLA schedule
-│   ├── sensor.py                 # Google Drive API and SLA timing
-│   ├── pre_validation.py         # Per-file validation rules
-│   ├── post_validation.py        # Warehouse business checks
-│   ├── snowflake_loader.py       # RAW layer ingestion
-│   ├── dbt_runner.py             # dbt build orchestration
-│   ├── notifications.py          # Slack and email delivery
-│   └── orchestrator.py           # Step control and cascade skip logic
-├── dbt/
-│   ├── models/
-│   │   ├── staging/              # PHI minimization applied here
-│   │   └── marts/
-│   │       ├── dim_*.sql         # De-identified dimensions
-│   │       └── fct_appointments.sql  # Central fact table
-│   ├── dbt_project.yml
-│   └── packages.yml              # dbt_utils and codegen
+│   ├── config.py                  # Env config, expected schemas, SLA schedule
+│   ├── sensor.py                  # Google Drive polling + SLA classification
+│   ├── pre_validation.py          # Per-file validation rules
+│   ├── snowflake_loader.py        # RAW layer ingestion, key-pair auth, content-hash dedup
+│   ├── dbt_runner.py              # dbt build orchestration
+│   ├── post_validation.py         # Independent warehouse reconciliation checks
+│   ├── notifications.py           # Slack + email delivery
+│   ├── orchestrator.py            # Stage control, dependency order, cascade-skip
+│   ├── logger.py                  # Structured logging utilities
+│   ├── data_dictionary.ipynb      # Source schema documentation
+│   └── exploration.ipynb          # Ad hoc data exploration
+├── models/
+│   ├── _sources.yml                # RAW source declarations
+│   ├── staging/
+│   │   └── hl7/
+│   │       ├── stg_hl7__*.sql      # 6 staging models, PHI minimized here
+│   │       └── _tests.yml          # Staging-layer generic tests
+│   └── marts/
+│       ├── dim_*.sql               # 4 dimensions
+│       ├── fct_*.sql               # 2 facts
+│       └── _tests.yml              # Marts-layer PK/FK generic tests
+├── tests/
+│   ├── fct_conditions_unique_grain.sql   # Singular test: conditions grain has no single-column PK
+│   └── test_sensor_credentials.py
 ├── .github/
 │   └── workflows/
-│       └── pipeline.yml          # Weekly schedule and manual dispatch
-├── data/
-│   ├── landing/                  # Sensor download location
-│   └── landing/quarantine/       # Rejected files preserved here
-├── .env.example                  # Configuration template
-├── .gitignore                    # Secrets, data, and local environment files
-├── requirements.txt              # Python dependencies
-├── README.md                     # This file
-└── LICENSE                       # MIT License
-Honest Limits
+│       └── pipeline.yml            # Weekly schedule + manual dispatch
+├── .dbt/
+│   └── profiles.yml                # dbt Snowflake connection profile
+├── dbt_project.yml
+├── packages.yml                    # dbt-labs/codegen
+├── requirements.txt                # Python dependencies
+└── README.md                       # This file
+```
 
-1. Synthetic data only. All files come from the Synthea HL7 generator. Schema patterns and data issues reflect realistic healthcare data characteristics but contain no real patient information.
+---
 
-2. Weekly batch cadence only. Designed for a once-per-week delivery window. No incremental logic or change-data-capture pattern implemented. Full replacement loads on every run.
+## Honest Limits
 
-3. Dev stack current. Airflow and Great Expectations are target architecture only. The current implementation uses Python pandas validation and GitHub Actions. The production migration path is documented but not yet deployed in this repository.
+**1. No HIPAA compliance.** PHI is minimized by omission at the staging boundary and names are masked to initials, but there's no column-level encryption, no query audit logging, and no formal access control layer. That's PHI-conscious design, not HIPAA compliance — worth naming as scope, not oversight, especially since the data is synthetic Synthea output anyway.
 
-4. Limited retry and backoff. File download and database operations have basic error handling but no exponential backoff or retry loops. Transient network issues may fail the run without automatic recovery.
-About the Author
+**2. Stage 1 only — no Great Expectations or Airflow yet.** Validation is hand-written pandas checks and orchestration is a GitHub Actions cron trigger. Both are deliberately designed to be swapped for Great Expectations and Airflow without reshaping the pipeline, but that swap hasn't happened yet.
 
-Yomi Ismail builds end-to-end data pipelines across cloud and on-premise stacks. This project grew from a need to standardize HL7 healthcare data delivery, moving from the simple question of Did the files arrive? to a repeatable, documented, and auditable data pipeline.
+**3. No unit tests on the Python layer.** Data quality is enforced at runtime by pre-validation and post-validation, but the sensor, loader, and orchestrator code itself has no pytest coverage. There's no CI-time check that a refactor of the cascade-skip logic or the SHA-256 dedup check still behaves correctly against fixtures.
 
-Related work in the same portfolio:
+**4. No SCD Type 2 on `dim_patients`.** If a patient's region, county, or payer coverage changes between weekly loads, the previous value is overwritten. Real reporting often needs history (coverage as of the encounter date, not as of today). Adding SCD Type 2 would need effective-from/effective-to columns and updated load logic.
 
-• National Hospital: Azure ELT pipeline using ADF orchestration, Databricks transformation, ADLS Gen2 storage, and Azure SQL Data Warehouse
+**5. No backfill tooling.** The pipeline expects one file set per week and quarantines what fails pre-validation. If a file is missed or quarantined, there's no automated reprocessing job — re-running means manually re-uploading to the source folder for the next scheduled run to pick up.
 
-• Nova Retail: On-premise medallion lakehouse using Docker Compose, Airflow, PySpark, and PostgreSQL
+**6. No `.env.example` or LICENSE file yet.** Required environment variables are documented in [How to Reproduce](#how-to-reproduce), but there's no template file to copy from. No license is currently attached to the repository either — see [License](#license).
 
-• World Football Insights: GCP serverless pipeline using Cloud Composer, Dataproc Serverless, GCS, and BigQuery
+---
 
-• FibbieBanks: PySpark ETL with surrogate key management and PostgreSQL star schema
-Connect
+## About the Author
 
-• Portfolio: yoismail.github.io/portfolio
+**Yomi Ismail** builds end-to-end data pipelines across cloud and on-premise stacks. This project grew from a need to standardize unreliable third-party healthcare data delivery — moving from the simple question of "did the files arrive?" to a repeatable, quality-gated, and auditable data platform.
 
-• LinkedIn: linkedin.com/in/yomi-ismail
+**Related work in the same portfolio:**
 
-• Email: ismailyomi@gmail.com
-License
+- **[National Hospital](https://github.com/yoismail/national_hospital_azure_dw)**: Azure ELT pipeline using ADF orchestration, Databricks transformation, ADLS Gen2 storage, and Azure SQL Data Warehouse
+- **[Nova Retail](https://github.com/yoismail/nova_retail_case_study)**: Containerised on-premise data platform with Docker Compose, Airflow-orchestrated PySpark medallion pipeline, and PostgreSQL Gold layer
+- **[World Football Insights](https://github.com/yoismail/worldcup_football_intelligence)**: Cloud-native serverless ELT on GCP with Cloud Composer, Dataproc Serverless, GCS lakehouse, and BigQuery warehouse
+- **[FibbieBanks](https://github.com/yoismail/fibbie_banks)**: 1M-row PySpark ETL with deterministic SHA-256 surrogate keys and validated PostgreSQL star schema
 
-MIT License. See LICENSE file for details.
-Built in Suffolk, England.
+---
+
+## Connect
+
+- 🌐 **Portfolio:** [yoismail.github.io/portfolio](https://yoismail.github.io/portfolio)
+- 📄 **Case study:** [yoismail.github.io/portfolio/caresync.html](https://yoismail.github.io/portfolio/caresync.html)
+- 💼 **LinkedIn:** [linkedin.com/in/yomi-ismail](https://www.linkedin.com/in/yomi-ismail)
+- 📧 **Email:** ismailyomi@gmail.com
+
+---
+
+## License
+
+No license file is currently included in this repository, so all rights are reserved by default until one is added.
+
+---
+
+*Built in Suffolk, England.*
