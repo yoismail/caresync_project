@@ -1,8 +1,11 @@
 pandas
 python-dotenv
 snowflake-connector-python[pandas]
+cryptography
 dbt-snowflake
 great-expectations
+requests
 google-api-python-client
+google-auth
 google-auth-httplib2
 google-auth-oauthlib
