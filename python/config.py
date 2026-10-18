@@ -136,7 +136,7 @@ EXPECTED = {
 # SLA TIMES - WEEKLY NOTIFICATION SCHEDULE CONFIG
 # 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
 DELIVERY_WEEKDAY = 6
-DELIVERY_HOUR_UTC = 13  # (1 PM UK time)
+DELIVERY_HOUR_UTC = 12  # (1 PM UK time)
 DELIVERY_MINUTE = 0
 SLA_HOURS = 1
 
