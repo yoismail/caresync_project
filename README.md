@@ -89,6 +89,7 @@ Files arrived inconsistently: sometimes late, sometimes with malformed values, s
 **After this pipeline:**
 - Arrival confidence: the sensor confirms all 6 files are present and classifies each as on-time, missing, too-early, or late against a 1-hour SLA window
 - Schema enforcement: missing columns, wrong formats, or out-of-range values get a file quarantined while the rest of the run continues
+- Immediate alerts: a quarantined file fires its own Slack/email alert the moment it's quarantined, not something stakeholders only discover buried in the end-of-run summary
 - Skip-not-fail semantics: a quarantined file's downstream dependents are cascade-skipped rather than crashing the run, while unaffected files load normally
 - Idempotent loads: a SHA-256 content hash means re-running a week's load never double-counts rows, no `TRUNCATE` required
 - Analytics-ready output: dbt produces a PHI-minimized star schema with 38 built-in tests, independently re-verified by 15 post-validation checks
@@ -131,7 +132,7 @@ flowchart LR
     STG --> MARTS
     MARTS --> POSTVAL
     POSTVAL --> NOTIFY
-    QUARANTINE --> NOTIFY
+    QUARANTINE -->|immediate alert| NOTIFY
 ```
 
 The orchestrator runs six stages in strict dependency order: sense, validate, load, transform, verify, notify. A Google Drive sensor checks for the six expected files under a one-hour SLA and classifies each as on-time, missing, too-early, or late. A pandas pre-validation gate runs seven checks per file (schema, mandatory fields, UUID format, allowed values, chronology, duplicate IDs, row-count bounds) before anything touches the warehouse. Healthy files load into Snowflake's `NEXORA_RAW` layer with idempotent, content-hashed writes; a file that fails validation is quarantined, and the dependency graph (`organizations` → `patients` → `encounters` → `conditions`, etc.) cascade-skips anything downstream of it rather than failing the whole run. dbt transforms `NEXORA_RAW` into a staging layer, then a single-fact-grain star schema in `NEXORA_PROD`. A post-validation gate independently re-verifies the finished reporting layer - not just that dbt's own tests passed, but that the warehouse the business actually queries reconciles.
@@ -193,7 +194,7 @@ Two independent validation layers catch different failure modes:
 
 ### Layer 1: Pre-validation before warehouse ingestion
 
-Every file is assessed before any of its data leaves the landing zone: schema compliance, mandatory field presence, UUID format, allowed values, date chronology, duplicate primary keys, and row-count sanity bounds. A failure is specific - which file, which check, which row - and the file is quarantined rather than silently dropped. Files that depend on a quarantined file are cascade-skipped through the dependency graph (`organizations` → `patients` → `encounters` → `conditions`), so one bad file can't produce an orphaned-FK load elsewhere. Unaffected files continue processing normally.
+Every file is assessed before any of its data leaves the landing zone: schema compliance, mandatory field presence, UUID format, allowed values, date chronology, duplicate primary keys, and row-count sanity bounds. A failure is specific - which file, which check, which row - and the file is physically moved into `data/landing/quarantine/` rather than silently dropped, firing its own Slack/email alert at the moment it happens rather than waiting for the end-of-run summary. Files that depend on a quarantined file are cascade-skipped through the dependency graph (`organizations` → `patients` → `encounters` → `conditions`), so one bad file can't produce an orphaned-FK load elsewhere. Unaffected files continue processing normally.
 
 ### Layer 2: Post-validation after transformation
 
@@ -208,7 +209,7 @@ A single validation pass at ingestion only proves the input was well-formed - it
 ## Engineering Decisions
 
 **1. Quarantine + cascade-skip over fail-fast.**
-A bad file could fail the whole run, or get silently dropped, or get quarantined with its dependents skipped. Chose quarantine with cascade-skip through the dependency graph: the bad file is preserved for inspection, everything that depends on it is skipped rather than loaded with broken foreign keys, and everything unaffected still processes. Tradeoff: a bad week means a partial report. Gain: no silent data loss, and no corrupted downstream tables.
+A bad file could fail the whole run, or get silently dropped, or get quarantined with its dependents skipped. Chose quarantine with cascade-skip through the dependency graph: the bad file is physically moved to a quarantine folder and preserved for inspection, its own alert fires immediately, everything that depends on it is skipped rather than loaded with broken foreign keys, and everything unaffected still processes. Tradeoff: a bad week means a partial report. Gain: no silent data loss, no corrupted downstream tables, and stakeholders find out the moment it happens instead of when they next try to run an analysis.
 
 **2. Idempotent loads via content hash, not `TRUNCATE`.**
 Re-running a week's load could `TRUNCATE` and reload, or check before inserting. Chose a SHA-256 hash of filename plus file bytes, checked against a `FILE_HASH` column before insert. Tradeoff: slightly more bookkeeping per load. Gain: safe re-runs without a destructive `TRUNCATE`, and a verifiable record of exactly which file version loaded which rows.
