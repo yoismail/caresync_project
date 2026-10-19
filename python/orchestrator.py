@@ -20,7 +20,7 @@ import re
 from datetime import datetime, timezone
 from python.config import LANDING_FOLDER
 from python.sensor import check_and_download
-from python.pre_validation import validate_file
+from python.pre_validation import validate_file, quarantine_file, ensure_quarantine_folder
 from python.snowflake_loader import load_csv_to_snowflake
 from python.logger import setup_logging, timed
 from python.notifications import notify_run_success, notify_task_error
@@ -91,6 +91,7 @@ def orchestrate():
         f"Sensor complete — {len(downloaded_files)} file(s) ready for processing")
 
     # Step 1: Pre-validate ALL files + track results
+    ensure_quarantine_folder()
     validated_results = {}
     summary = {
         "run_id": run_id,
@@ -129,6 +130,10 @@ def orchestrate():
         else:
             summary["pre_validation"]["quarantined"] += 1
             summary["pre_validation"]["quarantined_files"].append(filename)
+            # Move the file out of the landing folder and fire the
+            # dedicated per-file alert immediately, rather than only
+            # surfacing the failure in the end-of-run summary.
+            quarantine_file(source_path, issues, row_count)
 
     # Step 2: Build cascade skip map
     skip_reason_map = build_cascade_map(validated_results)
