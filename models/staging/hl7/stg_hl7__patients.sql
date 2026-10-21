@@ -11,9 +11,14 @@ source as (
 renamed as (
     select
         id                                          as patient_id,
-        -- Masked name from separate first + last columns — both initialed
+
+
+        -- Masked name from separate first + last columns — both initialed. This can't identify a patient
         left(first, 1) || '.' || left(last, 1) || '.' as patient_masked_name,
         
+        -- PHI REMOVED — drop sensitive columns entirely
+        -- ssn, drivers, passport, prefix, first, last, suffix, maiden, birthplace, full address → NOT included
+
         -- Standardize gender values
         case 
             when gender in ('M', 'male', 'Male') then 'M'
