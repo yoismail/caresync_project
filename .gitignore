@@ -2,7 +2,7 @@
 service-account-key.json
 NOTE.md
 .env
-venv/
+.venv/
 data/
 python/__pycache__/
 logs/
@@ -10,6 +10,7 @@ logs/
 # RSA Private Key for Snowflake authentication
 rsa_key.p8
 rsa_key.pub
+rsa_key_pkcs8.p8
 
 # dbt user-specific files
 .user.yml
