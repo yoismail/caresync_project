@@ -17,8 +17,8 @@ renamed as (
         payer                                   as payer_id,
 
         -- Timestamps → proper datetime type
-        encounter_start::timestamp_ntz           as encounter_start,
-        encounter_stop::timestamp_ntz            as encounter_end,
+        TRY_CAST("START" AS TIMESTAMP)  as encounter_start,
+        TRY_CAST("STOP" AS TIMESTAMP)    as encounter_end,
 
         -- Standardise encounter class values
         case 

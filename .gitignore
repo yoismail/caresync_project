@@ -27,3 +27,4 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.log
+dbt_internal_packages/
