@@ -16,8 +16,8 @@ clean-targets:
 models:
   caresync:
     staging:
-      +schema: null # Use default from the database for staging
+      +schema: HL7
       +database: NEXORA_STAGING
     marts:
-      +schema: null # Use default schema from the database for marts
+      +schema: HL7
       +database: NEXORA_PROD
